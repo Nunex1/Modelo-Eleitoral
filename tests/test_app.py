@@ -84,3 +84,40 @@ def test_privacy_routes_session_deletion_and_about():
     direct.query_params["pagina"] = "privacidade"
     direct.run()
     assert not direct.exception and direct.session_state.page == "Política de Privacidade"
+
+
+def test_delete_conversation_requires_confirmation_and_purges_state():
+    app = AppTest.from_file(str(APP), default_timeout=60).run()
+    app.chat_input[0].set_value("Compare os votos em Americana/SP").run()
+    first = app.session_state.active_conversation
+    assert len(app.chat_message) == 2
+    app.button(key="delete_chat").click().run()
+    assert any("Esta ação não poderá ser desfeita." in m.value for m in app.markdown)
+    app.button(key="delete_cancel").click().run()
+    assert not app.exception and len(app.chat_message) == 2 and first in app.session_state.conversations
+    app.button(key="delete_chat").click().run()
+    app.button(key="delete_confirm").click().run()
+    assert not app.exception and first not in app.session_state.conversations
+    assert len(app.chat_message) == 0
+    assert all(not c["messages"] for c in app.session_state.conversations.values())
+    assert not any("Americana" in b.label for b in app.button if (b.key or "").startswith("history_"))
+    # Uma nova sessão (atualizar a página) começa sem histórico.
+    fresh = AppTest.from_file(str(APP), default_timeout=60).run()
+    assert len(fresh.chat_message) == 0 and all(not c["messages"] for c in fresh.session_state.conversations.values())
+
+
+def test_logo_returns_home_without_deleting_conversation():
+    app = AppTest.from_file(str(APP), default_timeout=60).run()
+    app.chat_input[0].set_value("Compare os votos em Americana/SP").run()
+    first = app.session_state.active_conversation
+    app.button(key="brand_home").click().run()
+    assert not app.exception and len(app.chat_message) == 0 and "pagina" not in app.query_params
+    assert app.session_state.conversations[first]["messages"]
+    app.button(key="nav_dashboard").click().run()
+    assert len(app.metric) == 4
+    app.button(key="brand_home_sidebar").click().run()
+    assert not app.exception and len(app.metric) == 0 and len(app.chat_input) == 1
+    assert app.session_state.page == "Pergunte ao Lampiadim"
+    app.button(key="round_2").click().run()
+    app.button(key="brand_home").click().run()
+    assert len(app.chat_input) == 1 and len(app.session_state.conversations) == 2

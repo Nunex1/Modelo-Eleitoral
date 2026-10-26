@@ -13,7 +13,8 @@ BASE = Path(__file__).resolve().parent
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 from lampiadim.data import ASSETS, DATA, DIMENSIONS, ElectoralData, Filters, csv_bytes, integer, percent
-from lampiadim.assistant import answer_question, provider_enabled
+from lampiadim.assistant import ConversationState, answer_question, provider_enabled
+from lampiadim.engine import DataUnavailable, engine_for
 from lampiadim import charts
 from lampiadim.branding import asset_uri, brand_html
 
@@ -27,11 +28,16 @@ PENDING_TURN = "Os dados do segundo turno ainda estão pendentes de integração
 
 @st.cache_resource(show_spinner="Organizando os dados eleitorais…")
 def load_data(version):
-    return ElectoralData()
+    loaded = ElectoralData()
+    try:
+        engine_for(loaded)  # agregações do assistente prontas antes da primeira pergunta
+    except DataUnavailable:
+        pass  # o chat informa a indisponibilidade sem apresentar números
+    return loaded
 
 
 try:
-    data = load_data(((DATA / "manifest.json").stat().st_mtime_ns, (BASE / "lampiadim/data.py").stat().st_mtime_ns))
+    data = load_data(((DATA / "manifest.json").stat().st_mtime_ns, max(p.stat().st_mtime_ns for p in (BASE / "lampiadim").glob("*.py"))))
 except (FileNotFoundError, ValueError, KeyError) as exc:
     st.error(str(exc))
     st.code(r".\.venv\Scripts\python.exe scripts\preparar_dados.py", language="powershell")
@@ -84,12 +90,25 @@ def current_filters():
 
 
 def new_conversation(open_chat=True):
-    key = uuid.uuid4().hex
-    st.session_state.conversations[key] = {"title": "Nova conversa", "messages": [], "context": current_filters()}
+    # Reaproveita uma conversa vazia para não acumular entradas sem conteúdo.
+    key = next((k for k, c in st.session_state.conversations.items() if not c["messages"]), None) or uuid.uuid4().hex
+    # Contexto conversacional temporário: entidades em foco e esclarecimentos pendentes, sem o texto das mensagens.
+    st.session_state.conversations[key] = {"title": "Nova conversa", "messages": [], "context": current_filters(), "state": ConversationState.from_filters(current_filters())}
     st.session_state.active_conversation = key
     st.session_state.selected_turn = 1
     if open_chat:
         navigate(PAGES["conversa"])
+
+
+def go_home():
+    """Página inicial: boas-vindas do chat. A conversa atual continua no histórico da sessão."""
+    if st.session_state.conversations.get(st.session_state.get("active_conversation"), {}).get("messages"):
+        new_conversation(open_chat=False)
+    st.session_state.selected_turn = 1
+    st.session_state.page = PAGES["conversa"]
+    st.session_state.route = "conversa"
+    st.query_params.clear()
+    st.session_state.update(st.session_state.get("filter_memory", {}))
 
 
 def open_conversation(key):
@@ -98,10 +117,58 @@ def open_conversation(key):
     navigate(PAGES["conversa"])
 
 
+def purge_conversation(key):
+    """Remove perguntas, respostas, título e contexto do estado da sessão."""
+    conversation = st.session_state.conversations.pop(key, None)
+    if conversation:
+        # Esvazia a lista para que nenhuma referência remanescente mantenha o conteúdo.
+        conversation["messages"].clear()
+        conversation.clear()
+    st.session_state.pop("question", None)
+
+
+def delete_conversation(key):
+    purge_conversation(key)
+    new_conversation(open_chat=False)
+    st.session_state.conversation_deleted = True
+
+
 def clear_conversations():
-    st.session_state.conversations = {}
+    for key in list(st.session_state.conversations):
+        purge_conversation(key)
     new_conversation(open_chat=False)
     st.session_state.history_cleared = True
+
+
+def request_delete():
+    st.session_state.pending_delete = st.session_state.active_conversation
+
+
+def cancel_delete():
+    st.session_state.pop("pending_delete", None)
+
+
+# Estado explícito: fechar pelo X ou por Esc equivale a cancelar.
+@st.dialog("Excluir conversa", icon=":material/delete:", on_dismiss=cancel_delete)
+def confirm_delete(key):
+    st.write("Deseja excluir esta conversa? Esta ação não poderá ser desfeita.")
+    st.caption("Perguntas, respostas e contexto serão removidos desta sessão. Arquivos já baixados ficam no seu dispositivo."
+               + (" Perguntas já enviadas à OpenAI podem permanecer nos registros do fornecedor, conforme a retenção dele." if provider_enabled() else ""))
+    cancel, delete = st.columns(2)
+    if cancel.button("Cancelar", key="delete_cancel", width="stretch"):
+        cancel_delete()
+        st.rerun()
+    if delete.button("Excluir definitivamente", key="delete_confirm", icon=":material/delete:", type="primary", width="stretch"):
+        cancel_delete()
+        delete_conversation(key)
+        st.rerun()
+
+
+def brand_link(sidebar=False):
+    """Logotipo e nome como botão nativo: navegação sem recarregar a página."""
+    with st.container(key="home-sidebar" if sidebar else "home-header"):
+        st.html(brand_html(sidebar=sidebar))
+        st.button("Lampiadim · ir para a página inicial", key="brand_home_sidebar" if sidebar else "brand_home", on_click=go_home)
 
 
 def safe_select(label, choices, key, **kwargs):
@@ -121,7 +188,7 @@ def shell():
     if "active_conversation" not in st.session_state:
         new_conversation(open_chat=False)
     with st.sidebar:
-        st.html(brand_html(sidebar=True))
+        brand_link(sidebar=True)
         st.html('<div class="sidebar-label">Eleições <span>2026</span></div>')
         available = 1 in data.turns(DEFAULTS["year"]) and data.query(Filters(year=DEFAULTS["year"], turn=1))["votes"] > 0
         with st.container(key="election-cards"):
@@ -133,7 +200,7 @@ def shell():
             with st.container(key="session-history", height=210 if len(st.session_state.conversations) > 4 else "content", border=False):
                 for key, conversation in reversed(list(st.session_state.conversations.items())):
                     st.button(conversation["title"], key=f"history_{key}", icon=":material/chat_bubble_outline:", width="stretch", type="tertiary", on_click=open_conversation, args=(key,), help="Abrir esta conversa e seu contexto de consulta")
-            st.caption("As conversas ficam nesta sessão.")
+            st.caption("Conversas temporárias: ficam só na memória desta sessão e são descartadas ao recarregar ou fechar a página.")
         st.html('<div class="sidebar-label">Informações</div>')
         with st.container(key="side-navigation"):
             for slug, icon in [("dashboard", "bar_chart"), ("privacidade", "shield"), ("sobre", "info")]:
@@ -144,7 +211,7 @@ def shell():
     with st.container(key="header"):
         brand, navigation = st.columns([1.35, 1], vertical_alignment="center")
         with brand:
-            st.html(brand_html())
+            brand_link()
         with navigation, st.container(key="navigation"):
             left, right = st.columns(2)
             left.button("Conversar", icon=":material/chat_bubble_outline:", key="header_chat", type="primary" if st.session_state.page == PAGES["conversa"] else "tertiary", width="stretch", on_click=navigate, args=(PAGES["conversa"],))
@@ -352,7 +419,7 @@ def render_answer(answer):
         with st.expander("Consultar fontes e denominadores"):
             for source in answer.sources:
                 st.caption(source)
-            st.caption("Percentual eleitoral: votos da candidatura / votos válidos do território. Perfil: eleitores da categoria / eleitores no recorte cadastral. Não são percentuais de comparecimento.")
+            st.caption("Percentual eleitoral: votos da candidatura / votos válidos do território e turno. Perfil: eleitores da categoria / eleitores no recorte cadastral. Não são percentuais de comparecimento.")
     st.caption(answer.mode)
 
 
@@ -360,6 +427,7 @@ def chat():
     conversation = st.session_state.conversations[st.session_state.active_conversation]
     if not conversation["messages"]:
         conversation["context"] = current_filters()
+        conversation["state"] = ConversationState.from_filters(conversation["context"])
     with st.container(key="chat-page"):
         prompt = None
         if not conversation["messages"]:
@@ -380,7 +448,13 @@ def chat():
                         render_answer(message["answer"])
         if conversation["messages"]:
             transcript = "\n\n".join(("Você: " + m["text"]) if m["role"] == "user" else "Lampiadim: " + m["answer"].text for m in conversation["messages"])
-            st.download_button("Baixar conversa", transcript, "conversa_lampiadim.txt", "text/plain")
+            with st.container(key="chat-actions", horizontal=True):
+                st.download_button("Baixar conversa", transcript, "conversa_lampiadim.txt", "text/plain", icon=":material/download:")
+                st.button("Excluir conversa", key="delete_chat", icon=":material/delete:", help="Excluir esta conversa da sessão", on_click=request_delete)
+            if st.session_state.get("pending_delete") in st.session_state.conversations:
+                confirm_delete(st.session_state.pending_delete)
+        if st.session_state.pop("conversation_deleted", False):
+            st.toast("Conversa excluída. Uma nova conversa foi iniciada.", icon=":material/delete:")
     # Fora do container: o Streamlit fixa o compositor na base da área principal.
     typed = st.chat_input("Pergunte ao Lampiadim…", key="question", max_chars=2000)
     prompt = typed or prompt
@@ -393,10 +467,10 @@ def chat():
                 st.write(prompt)
             with st.chat_message("assistant", avatar=AVATAR):
                 with st.spinner("O Lampiadim está consultando os dados…", show_time=True):
-                    answer = answer_question(prompt, data, conversation["context"])
+                    answer = answer_question(prompt, data, conversation.get("state") or ConversationState.from_filters(conversation["context"]))
                     conversation["messages"].append({"role": "assistant", "answer": answer})
-                    if not answer.clarification:
-                        conversation["context"] = answer.filters
+                    conversation["state"] = answer.state
+                    conversation["context"] = answer.filters
         st.rerun()
 
 

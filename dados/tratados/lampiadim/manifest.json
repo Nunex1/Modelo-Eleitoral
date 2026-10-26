@@ -225,11 +225,35 @@
         "projection": "WGS84, visualização Mercator",
         "quality": "minima"
       }
-    ]
+    ],
+    "candidates": {
+      "file": "dados/brutos/votacao_candidato_munzona_2026.zip",
+      "sha256": "cef14bbf848da85cb1462657c9d3c95cd2d76d9b884c4ccd579e0384035be9a6",
+      "bytes": 452159174,
+      "member": "votacao_candidato_munzona_2026_BR.csv",
+      "rows": 12,
+      "total_brasil": 118969906,
+      "total_exterior": 330882,
+      "reconciled_votes": true,
+      "columns": [
+        "NR_CANDIDATO",
+        "NM_CANDIDATO",
+        "NM_URNA_CANDIDATO",
+        "NM_SOCIAL_CANDIDATO",
+        "SG_PARTIDO",
+        "NM_PARTIDO",
+        "NM_COLIGACAO",
+        "DS_COMPOSICAO_COLIGACAO",
+        "DS_SIT_TOT_TURNO",
+        "VOTOS_BRASIL",
+        "VOTOS_EXTERIOR"
+      ]
+    }
   },
   "outputs": {
     "municipios.parquet": "4d6b61f10e896a8aa8f5072932319a0da6ed66803f8cf7af3862c9227e96dd43",
     "perfil.parquet": "5c0503522ec68da37f26711f366822c3f45610feeb929ca01f664710ad2fdd1c",
-    "votos.parquet": "65e7945a2228dba50f159fa908e5c47ee84aed3ddb72f862524bda7b3125e9c8"
+    "votos.parquet": "65e7945a2228dba50f159fa908e5c47ee84aed3ddb72f862524bda7b3125e9c8",
+    "candidatos.parquet": "9a045364b5a0f4edc61fd4a686623ac7adb1f5a09a3c448ddb77aedd341cf8d1"
   }
 }

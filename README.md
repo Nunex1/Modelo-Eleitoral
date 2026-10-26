@@ -20,6 +20,8 @@ O segundo turno apresenta sua pendência de integração. A política descreve o
 funcionamento local e sinaliza dados do controlador que devem ser preenchidos
 antes de uma publicação.
 
+- [Inteligência conversacional: arquitetura, ferramentas, testes e limites](docs/INTELIGENCIA_CONVERSACIONAL.md)
+- [Validação da inteligência conversacional](resultados/VALIDACAO-INTELIGENCIA.md)
 - [Diagnóstico do projeto original](docs/DIAGNOSTICO.md)
 - [Instalação, execução, arquitetura, IA opcional e publicação](docs/EXECUCAO.md)
 - [Validação executada e limites](resultados/VALIDACAO.md)

@@ -66,6 +66,34 @@ def votes():
     return {**source(path), "member": member, "generated_dates": dates, "years": sorted(frame.ANO_ELEICAO.unique().tolist()), "turns": sorted(frame.NR_TURNO.unique().tolist()), "rows": len(frame), "total": int(frame.VOTOS.sum()), "reconciled_original": True}
 
 
+def candidates():
+    """Metadados oficiais por candidatura: nome completo, partido, situação e votos no exterior.
+
+    Reconcilia os votos sem exterior com votos.parquet; o exterior (ZZ) fica em coluna própria.
+    """
+    path = ROOT / "dados/brutos/votacao_candidato_munzona_2026.zip"
+    member = "votacao_candidato_munzona_2026_BR.csv"
+    meta = ["ANO_ELEICAO", "NR_TURNO", "DS_CARGO", "NR_CANDIDATO", "NM_CANDIDATO", "NM_URNA_CANDIDATO", "NM_SOCIAL_CANDIDATO", "SG_PARTIDO", "NM_PARTIDO", "NM_COLIGACAO", "DS_COMPOSICAO_COLIGACAO", "DS_SIT_TOT_TURNO"]
+    with ZipFile(path) as z, z.open(member) as f:
+        frame = pd.read_csv(f, sep=";", encoding="latin1", usecols=meta + ["SG_UF", "QT_VOTOS_NOMINAIS_VALIDOS"])
+    frame = frame[frame.DS_CARGO.str.upper().eq("PRESIDENTE") & (frame.SG_UF.isin(UFS) | frame.SG_UF.eq("ZZ"))]
+    frame["ESCOPO"] = frame.SG_UF.where(frame.SG_UF.eq("ZZ"), "BR")
+    votes_by_scope = frame.pivot_table(index=["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO"], columns="ESCOPO", values="QT_VOTOS_NOMINAIS_VALIDOS", aggfunc="sum", fill_value=0)
+    info = frame[meta].drop_duplicates()
+    if info.duplicated(["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO"]).any():
+        raise ValueError("Metadados divergentes para a mesma candidatura")
+    table = info.merge(votes_by_scope.rename(columns={"BR": "VOTOS_BRASIL", "ZZ": "VOTOS_EXTERIOR"}).reset_index(), on=["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO"], how="left", validate="one_to_one")
+    for column in ["VOTOS_BRASIL", "VOTOS_EXTERIOR"]:
+        table[column] = (table[column] if column in table else pd.Series(0, index=table.index)).fillna(0).astype("int64")
+    table["NM_SOCIAL_CANDIDATO"] = table.NM_SOCIAL_CANDIDATO.where(~table.NM_SOCIAL_CANDIDATO.isin(["#NULO", "#NE"]))
+    prepared = pd.read_parquet(OUT / "votos.parquet").groupby(["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO", "NM_URNA_CANDIDATO"], as_index=False).VOTOS.sum()
+    check = table.merge(prepared, on=["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO", "NM_URNA_CANDIDATO"], how="outer", validate="one_to_one", indicator=True)
+    if not check._merge.eq("both").all() or not check.VOTOS.eq(check.VOTOS_BRASIL).all():
+        raise ValueError("Candidaturas não reconciliam com votos.parquet")
+    save(table.drop(columns="DS_CARGO").sort_values(["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO"]), "candidatos.parquet")
+    return {**source(path), "member": member, "rows": len(table), "total_brasil": int(table.VOTOS_BRASIL.sum()), "total_exterior": int(table.VOTOS_EXTERIOR.sum()), "reconciled_votes": True, "columns": meta[3:] + ["VOTOS_BRASIL", "VOTOS_EXTERIOR"]}
+
+
 def profile():
     path = ROOT / "dados/brutos/perfil_eleitorado_2026.zip"
     dims = ["AA_ELEICAO", "SG_UF", "CD_MUNICIPIO", "NM_MUNICIPIO", "DS_GENERO", "DS_IDENTIDADE_GENERO", "DS_FAIXA_ETARIA", "DS_GRAU_ESCOLARIDADE"]
@@ -177,12 +205,25 @@ def maps():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-profile", action="store_true", help="Reusar perfil já processado, verificando hash do ZIP")
+    parser.add_argument("--only-candidates", action="store_true", help="Gerar somente candidatos.parquet sobre uma preparação concluída")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     ASSETS.mkdir(parents=True, exist_ok=True)
     old = json.loads((OUT / "manifest.json").read_text(encoding="utf-8")) if (OUT / "manifest.json").exists() else {}
+    if args.only_candidates:
+        # Não reprocessa votos, perfil, geografia nem malhas: exige derivados íntegros.
+        if not old or any(sha(OUT / name) != digest for name, digest in old["outputs"].items() if name != "candidatos.parquet"):
+            raise ValueError("Preparação ausente ou alterada. Execute a preparação completa.")
+        old["sources"]["candidates"] = candidates()
+        old["outputs"]["candidatos.parquet"] = sha(OUT / "candidatos.parquet")
+        temp = OUT / "manifest.tmp"
+        temp.write_text(json.dumps(old, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(OUT / "manifest.json")
+        print(json.dumps({"success": True, "candidates": old["sources"]["candidates"]["rows"]}, ensure_ascii=False), flush=True)
+        return
     manifest = {"schema_version": 1, "prepared_at": datetime.now(timezone.utc).isoformat(), "classification": "arquivos TSE fornecidos no projeto; agregados reconciliados com os originais locais", "scope": "Brasil sem exterior", "sources": {}}
     manifest["sources"]["votes"] = votes()
+    manifest["sources"]["candidates"] = candidates()
     if args.skip_profile:
         if not (OUT / "perfil.parquet").exists() or old.get("sources", {}).get("profile", {}).get("sha256") != sha(ROOT / "dados/brutos/perfil_eleitorado_2026.zip"):
             raise ValueError("Perfil ausente ou origem alterada. Reprocesse sem --skip-profile.")

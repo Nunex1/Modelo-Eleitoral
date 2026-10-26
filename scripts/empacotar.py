@@ -14,7 +14,7 @@ def main():
             if hashlib.file_digest(f, "sha256").hexdigest() != expected:
                 raise ValueError("Derivado alterado: " + name)
     files = {ROOT / p for p in ["README.md", "Dockerfile", ".dockerignore", "requirements-dev.txt", "iniciar_lampiadim.ps1", ".streamlit/config.toml", "analise_eleitoral.ipynb", "image.png"]}
-    for folder, patterns in {"Lampiadim_MVP": ["*.py", "*.md", "*.txt", "*.csv", "*.xlsx"], "Lampiadim_MVP/lampiadim": ["*.py"], "Lampiadim_MVP/assets": ["*.svg", "*.css", "*.geojson", "*.png", "*.webp", "*.md", "*.json"], "dados/tratados/lampiadim": ["*.parquet", "*.csv", "*.json"], "scripts": ["*.py"], "tests": ["*.py"], "docs": ["*.md"], "resultados": ["*.md", "*.xml", "*.png"]}.items():
+    for folder, patterns in {"Lampiadim_MVP": ["*.py", "*.md", "*.txt", "*.csv", "*.xlsx"], "Lampiadim_MVP/lampiadim": ["*.py"], "Lampiadim_MVP/assets": ["*.svg", "*.css", "*.geojson", "*.png", "*.webp", "*.md", "*.json"], "dados/tratados/lampiadim": ["*.parquet", "*.csv", "*.json"], "scripts": ["*.py"], "tests": ["*.py"], "tests/avaliacao": ["*.json"], "docs": ["*.md"], "resultados": ["*.md", "*.xml", "*.png"]}.items():
         for pattern in patterns:
             files.update((ROOT / folder).glob(pattern))
     output = ROOT / "resultados/Lampiadim-local.zip"

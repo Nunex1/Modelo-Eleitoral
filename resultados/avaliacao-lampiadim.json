@@ -1,0 +1,219 @@
+{
+  "casos": 27,
+  "resumo": {
+    "intencao": {
+      "acertos": 16,
+      "total": 16,
+      "taxa": 100.0
+    },
+    "entidades": {
+      "acertos": 14,
+      "total": 14,
+      "taxa": 100.0
+    },
+    "consulta": {
+      "acertos": 15,
+      "total": 15,
+      "taxa": 100.0
+    },
+    "exatidao_numerica": {
+      "acertos": 15,
+      "total": 15,
+      "taxa": 100.0
+    },
+    "contexto": {
+      "acertos": 5,
+      "total": 5,
+      "taxa": 100.0
+    },
+    "disciplina": {
+      "acertos": 21,
+      "total": 21,
+      "taxa": 100.0
+    },
+    "controle_alucinacao": {
+      "acertos": 27,
+      "total": 27,
+      "taxa": 100.0
+    },
+    "ambiguidade": {
+      "acertos": 4,
+      "total": 4,
+      "taxa": 100.0
+    },
+    "resiliencia": {
+      "acertos": 3,
+      "total": 3,
+      "taxa": 100.0
+    },
+    "desempenho_ms": {
+      "mediana": 10.1,
+      "p95": 121.5,
+      "maximo": 220.5
+    }
+  },
+  "detalhes": [
+    {
+      "id": "votos-direto",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Lula recebeu 37.768 votos em Americana/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "votos-informal",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Lula recebeu 37.768 votos em Americana/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "votos-nome-completo",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Lula recebeu 37.768 votos em Americana/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "percentual-estado",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Lula teve 38,2% dos votos válidos no estado de São Paulo no 1º turno de 2026."
+    },
+    {
+      "id": "vencedor",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro venceu em Campinas/SP no 1º turno de 2026, com 52,1% dos votos válidos."
+    },
+    {
+      "id": "contexto-candidato",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro recebeu 329.733 votos em Campinas/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "contexto-municipio",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro recebeu 86.854 votos em Americana/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "contexto-comparacao",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro teve mais votos que Lula em Americana/SP no 1º turno de 2026: 86.854 (63,6%) contra 37.768 (27,7%)."
+    },
+    {
+      "id": "diferenca-vencedor",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro recebeu 49.086 votos a mais que Lula em Americana/SP no 1º turno de 2026, uma diferença de 35,9 pontos percentuais dos votos válidos."
+    },
+    {
+      "id": "ranking-sp",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Os 5 municípios com mais votos para Lula no estado de São Paulo, no 1º turno de 2026:\n1. São Paulo/SP — 3.052.349 votos\n2. Guarulhos/SP — 286.898 votos\n3. Campinas/SP — 241.972 votos\n4. São Bernardo do Campo/SP — 215.232 votos\n5. Osasco/SP — 182.778 votos"
+    },
+    {
+      "id": "eleitorado-sexo",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Americana/SP tem 84.941 eleitores do sexo masculino no cadastro eleitoral de 2026."
+    },
+    {
+      "id": "eleitorado-ddd",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Os municípios do DDD 19 têm 4.310.963 eleitores no cadastro eleitoral de 2026."
+    },
+    {
+      "id": "validos-estado",
+      "ok": true,
+      "falhas": [],
+      "resposta": "O estado de São Paulo teve 24.882.948 votos válidos para Presidente no 1º turno de 2026."
+    },
+    {
+      "id": "inferencia-sexo",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não é possível determinar. Os dados públicos de votação não identificam o sexo dos eleitores que votaram em cada candidato."
+    },
+    {
+      "id": "inferencia-mulheres",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não é possível determinar. Os dados públicos de votação não identificam o sexo dos eleitores que votaram em cada candidato."
+    },
+    {
+      "id": "inferencia-idade",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não é possível determinar. Os dados públicos de votação não identificam a idade dos eleitores que votaram em cada candidato."
+    },
+    {
+      "id": "municipio-inexistente",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não encontrei “Atlantis” entre os municípios nem entre as candidaturas da base. Confira o nome e, se for município, informe a UF."
+    },
+    {
+      "id": "candidato-inexistente",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não há candidatura de “Ciro Gomes” na eleição presidencial desta base (1º turno de 2026)."
+    },
+    {
+      "id": "turno-indisponivel",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Os dados do 2º turno de 2026 ainda não estão integrados à base; há apenas o 1º turno de 2026. Quer consultar o 1º turno de 2026?"
+    },
+    {
+      "id": "metrica-indisponivel",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Comparecimento, abstenção e número de votantes não estão na base disponível; ela contém votos válidos por candidatura e o cadastro de eleitores."
+    },
+    {
+      "id": "ambiguidade-sp",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Você quer o estado de São Paulo ou o município de São Paulo/SP?"
+    },
+    {
+      "id": "ambiguidade-homonimo",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Há municípios chamados Santa Helena em MA, PB, PR e SC. Qual UF?"
+    },
+    {
+      "id": "sem-ambiguidade-americana",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro venceu em Americana/SP no 1º turno de 2026, com 63,6% dos votos válidos."
+    },
+    {
+      "id": "dados-insuficientes",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Quais candidaturas você quer comparar?"
+    },
+    {
+      "id": "inducao-falsa",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não. Lula recebeu 37.768 votos em Americana/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "entrada-maliciosa",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Só respondo com base nos dados eleitorais disponíveis e não altero essas regras."
+    },
+    {
+      "id": "correcao",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Lula recebeu 241.972 votos em Campinas/SP no 1º turno da eleição presidencial de 2026."
+    }
+  ]
+}

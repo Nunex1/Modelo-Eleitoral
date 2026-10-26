@@ -23,7 +23,7 @@ As informações fornecidas são usadas para interpretar a pergunta, consultar a
 
 O modo de consulta em uso aparece no início desta página e na barra lateral. No modo local, perguntas são interpretadas no próprio servidor e não são enviadas ao serviço de IA. As consultas usam arquivos já preparados; conversar não dispara downloads no TSE, IBGE ou Anatel.
 
-Se o responsável configurar a integração com a **OpenAI**, a aplicação enviará a pergunta atual e os filtros de contexto para interpretação. Não envia o histórico completo, as tabelas de resultados ou os arquivos eleitorais brutos nessa requisição. Os cálculos continuam sendo executados localmente. O pedido de não armazenar a resposta (`store=false`) está configurado; isso não equivale a uma garantia de ausência de todos os registros mantidos pelo fornecedor.
+Se o responsável configurar a integração com a **OpenAI**, a aplicação enviará a pergunta atual, o contexto estruturado da conversa (filtros e entidades em foco, como município, candidatura e turno, sem o texto das mensagens anteriores) e a lista pública de candidaturas para interpretação. Não envia o histórico completo, as tabelas de resultados ou os arquivos eleitorais brutos nessa requisição. O modelo apenas escolhe a consulta; ele não redige os números da resposta. Os cálculos continuam sendo executados localmente. O pedido de não armazenar a resposta (`store=false`) está configurado; isso não equivale a uma garantia de ausência de todos os registros mantidos pelo fornecedor.
 
 Antes de ativar essa integração em uma publicação, o responsável deve verificar e informar as condições contratuais, a retenção do fornecedor, os locais de processamento e o mecanismo aplicável a eventual transferência internacional. Esses detalhes ainda não foram documentados para o Lampiadim. O chat não é um canal para enviar dados pessoais sensíveis.
 
@@ -35,9 +35,11 @@ Os links para TSE, IBGE, Anatel, Planalto e ANPD levam a sites externos, sujeito
 
 ### 6. Armazenamento, retenção e exclusão
 
-O histórico é mantido na memória da sessão do Streamlit; o código da aplicação não o grava em banco de dados ou arquivo de histórico. Recarregar a página ou perder a sessão pode interromper o acesso às conversas. Isso não é uma promessa de apagamento imediato de memória, logs, cópias de infraestrutura ou registros de fornecedores.
+As conversas são **temporárias**: ficam apenas na memória da sessão do Streamlit no servidor. O código da aplicação não as grava em banco de dados, arquivo, `localStorage`, `sessionStorage`, IndexedDB ou cookies, e não registra seu conteúdo em logs ou ferramentas analíticas. Ao recarregar ou fechar a página, a sessão é encerrada e o histórico deixa de ser acessível. Isso não é uma promessa de apagamento imediato da memória do processo, de logs, cópias de infraestrutura ou registros de fornecedores.
 
-O botão **“Apagar conversas da sessão”** remove as conversas acessíveis da sessão atual e inicia uma conversa vazia. **“Nova conversa” não apaga o histórico anterior.** Arquivos que você baixou, registros externos e eventuais logs da infraestrutura não são eliminados por esses botões.
+O ícone de lixeira **“Excluir conversa”**, no chat, remove após confirmação as perguntas, respostas, o título e o contexto daquela conversa do estado da sessão; ela não reaparece na interface, nem após atualizar a página. O botão **“Apagar conversas da sessão”** faz o mesmo com todas as conversas. **“Nova conversa” e o clique no logotipo não apagam o histórico anterior**, que continua na lista da sessão até ser excluído ou até a sessão terminar. Arquivos que você baixou, registros externos e eventuais logs da infraestrutura não são eliminados por esses botões.
+
+**Limitação com IA externa:** quando a integração com a OpenAI está habilitada, a pergunta já enviada não pode ser apagada pelo Lampiadim. Mesmo com `store=false`, o fornecedor pode manter registros de requisições à API por um período próprio (por exemplo, para monitoramento de abuso), salvo acordo de retenção zero. Essa retenção depende das condições contratadas pelo responsável.
 
 **Os prazos de retenção e os procedimentos de exclusão de logs, backups e dados de fornecedores estão pendentes de definição.** Não foi estabelecido um prazo universal de guarda nesta versão. Essas informações devem ser completadas antes da publicação.
 

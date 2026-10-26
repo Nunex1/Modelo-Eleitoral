@@ -53,7 +53,17 @@ Para atualizar geografia sem reprocessar o perfil, após uma preparação conclu
 .\.venv\Scripts\python.exe scripts/preparar_dados.py --skip-profile
 ```
 
-Esse modo exige o mesmo hash do ZIP cadastral. Faça atualizações com a aplicação
+Para gerar somente os metadados de candidaturas (nome completo, partido, situação
+na totalização e votos no exterior) sobre uma preparação concluída:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/preparar_dados.py --only-candidates
+```
+
+Esse modo lê apenas o arquivo BR do ZIP de votação, reconcilia com `votos.parquet`
+e exige que os demais derivados estejam íntegros.
+
+O modo `--skip-profile` exige o mesmo hash do ZIP cadastral. Faça atualizações com a aplicação
 parada; o script substitui os derivados e grava o manifesto ao final. Uma falha
 na preparação é explícita e pode exigir reexecução antes de iniciar o painel.
 Não edite Parquets manualmente. As pastas de dados continuam ignoradas pelo Git,
@@ -62,28 +72,35 @@ use o pacote de distribuição com os derivados incluídos.
 
 ## Assistente
 
-O modo local não é um modelo generativo. Ele reconhece intenções e entidades em
-português, consulta os dados, explica denominadores e conserva o contexto da
-conversa. Há perguntas sugeridas, nova conversa, histórico da sessão e download.
-Uma atualização completa da página ou encerramento da sessão pode apagar o
-histórico. Cada sessão é independente; não existe armazenamento global de chats.
+Arquitetura, ferramentas, contexto, regras estatísticas, testes e limites estão
+em [INTELIGENCIA_CONVERSACIONAL.md](INTELIGENCIA_CONVERSACIONAL.md).
 
-A integração opcional usa a Responses API da OpenAI para produzir uma intenção
-estruturada validada. Configure no **ambiente do servidor**, antes da execução:
+O modo local não é um modelo generativo. Ele interpreta a pergunta (intenção,
+entidades, filtros, métrica, referências ao contexto), executa consultas tipadas
+e verificadas e responde por modelos determinísticos. Mantém o contexto da
+conversa e pede esclarecimento quando a ambiguidade muda o resultado. Há perguntas
+sugeridas, nova conversa, histórico da sessão e download. Uma atualização completa
+da página ou o encerramento da sessão pode apagar o histórico. Cada sessão é
+independente; não existe armazenamento global de chats.
+
+A integração opcional usa a Responses API da OpenAI com *function calling*
+estrito: o modelo escolhe a ferramenta e os argumentos, e o servidor revalida,
+calcula e redige. Configure no **ambiente do servidor**, antes da execução:
 
 - `OPENAI_API_KEY`: sua credencial, mantida fora do código e do Git.
 - `OPENAI_MODEL`: identificador de um modelo habilitado na conta com suporte a
   Structured Outputs. Não há modelo presumido ou selecionado automaticamente.
 
 Não coloque credenciais em perguntas, URLs ou arquivos distribuídos. A aplicação
-envia ao provedor a pergunta e o contexto dos filtros; os registros eleitorais
-não são enviados. Usa `store=false` e timeout de 20 segundos. A resposta do modelo
+envia ao provedor a pergunta, o contexto estruturado (entidades em foco, sem texto
+de mensagens anteriores) e a lista pública de candidaturas. Os registros
+eleitorais não são enviados. Usa `store=false` e timeout de 20 segundos. A resposta do modelo
 nunca é executada como código/SQL. Quantidades, percentuais e tabelas são
 calculados pelo serviço Python local. Falhas do provedor acionam o modo local e
 são identificadas na resposta, sem expor detalhes de credenciais.
 
 Referência do contrato implementado:
-<https://developers.openai.com/api/docs/guides/structured-outputs>.
+<https://developers.openai.com/api/docs/guides/function-calling>.
 A conexão com um provedor real não foi testada: não havia credencial/modelo
 configurados. Os testes verificam o contrato e o tratamento de falhas com
 respostas controladas; isso não equivale a homologação externa.
@@ -93,20 +110,27 @@ respostas controladas; isso não equivale a homologação externa.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest tests -q --junitxml=resultados/testes-lampiadim.xml
+.\.venv\Scripts\python.exe scripts\avaliar_lampiadim.py
 ```
 
 Os testes exigem os dados preparados reais. Cobrem reconciliação integral,
 denominadores, interseções, DDD, CSV reaberto, homônimos, contexto, ausência de
 dados, isolamento entre voto e perfil, contrato de IA e navegação Streamlit.
-Consulte `resultados/VALIDACAO.md` para o que foi efetivamente executado.
+A inteligência conversacional tem suíte própria (`tests/test_conversational.py`)
+e avaliação por conjunto de referência (`scripts/avaliar_lampiadim.py`).
+Consulte `resultados/VALIDACAO.md` e `resultados/VALIDACAO-INTELIGENCIA.md` para
+o que foi efetivamente executado.
 
 ## Arquitetura
 
 - `Lampiadim_MVP/app.py`: composição da interface e estado da sessão.
 - `Lampiadim_MVP/lampiadim/data.py`: filtros tipados, validação, consultas,
   denominadores e exportação. Dashboard e chat compartilham esse contrato.
-- `Lampiadim_MVP/lampiadim/assistant.py`: interpretação, resolução territorial,
-  integração opcional e respostas calculadas com fontes.
+- `Lampiadim_MVP/lampiadim/assistant.py`: orquestra as camadas do assistente.
+  `interpreter.py` (intérprete local), `llm.py` (OpenAI opcional), `entities.py`
+  (entidades verificadas), `context.py` e `planner.py` (contexto e
+  esclarecimentos), `tools.py` (ferramentas tipadas), `engine.py` (motor
+  estatístico), `verification.py` (verificação) e `responses.py` (respostas pt-BR).
 - `Lampiadim_MVP/lampiadim/charts.py`: gráficos Plotly e mapas IBGE em Mercator.
 - `Lampiadim_MVP/lampiadim/branding.py`: carregamento local da identidade oficial.
 - `Lampiadim_MVP/assets/`: ilustração oficial com transparência, versões WebP/SVG,

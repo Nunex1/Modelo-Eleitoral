@@ -14,6 +14,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "dados/tratados/lampiadim"
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
+OPTIONAL_OUTPUTS = {"candidatos.parquet"}
 DIMENSIONS = {"sexo": "DS_GENERO", "identidade": "DS_IDENTIDADE_GENERO", "idade": "DS_FAIXA_ETARIA", "escolaridade": "DS_GRAU_ESCOLARIDADE"}
 STATE_CODES = dict(zip("RO AC AM RR PA AP TO MA PI CE RN PB PE AL SE BA MG ES RJ SP PR SC RS MS MT GO DF".split(), "11 12 13 14 15 16 17 21 22 23 24 25 26 27 28 29 31 32 33 35 41 42 43 50 51 52 53".split()))
 
@@ -53,6 +54,8 @@ class ElectoralData:
             raise FileNotFoundError("Dados preparados ausentes: " + ", ".join(missing) + ". Execute scripts/preparar_dados.py na raiz do projeto.")
         self.manifest = json.loads((self.directory / "manifest.json").read_text(encoding="utf-8"))
         for name, expected in self.manifest["outputs"].items():
+            if name in OPTIONAL_OUTPUTS and not (self.directory / name).exists():
+                continue  # metadados complementares: ausentes, o assistente usa só os nomes de urna
             with (self.directory / name).open("rb") as f:
                 if hashlib.file_digest(f, "sha256").hexdigest() != expected:
                     raise ValueError(f"O arquivo {name} foi alterado após a preparação. Reprocesse os dados.")
@@ -65,6 +68,12 @@ class ElectoralData:
         self.years = sorted(self.votes.ANO_ELEICAO.unique().tolist())
         self.states = dict(self.towns[["SG_UF", "estado"]].dropna().drop_duplicates().itertuples(index=False, name=None))
         self.candidates = sorted(self.votes.NM_URNA_CANDIDATO.unique().tolist())
+        # Metadados oficiais (nome completo, partido, situação, exterior) são opcionais
+        # para preparações anteriores; sem eles, só o nome de urna identifica a candidatura.
+        if (self.directory / "candidatos.parquet").exists() and "candidatos.parquet" in self.manifest["outputs"]:
+            self.candidate_info = pd.read_parquet(self.directory / "candidatos.parquet")
+        else:
+            self.candidate_info = self.votes.groupby(["ANO_ELEICAO", "NR_TURNO", "NR_CANDIDATO", "NM_URNA_CANDIDATO", "SG_PARTIDO"], as_index=False).VOTOS.sum().rename(columns={"VOTOS": "VOTOS_BRASIL"})
         self.categories = {name: sorted(self.profile[col].dropna().unique().tolist()) for name, col in DIMENSIONS.items()}
         self.city_records = self.towns.assign(NORMAL=self.towns.NM_MUNICIPIO.map(normalize)).to_dict("records")
 
