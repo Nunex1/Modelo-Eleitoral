@@ -50,18 +50,23 @@ def test_map_selection_updates_scope():
     assert not app.exception and app.metric[0].value == "136.589"
 
 
-def test_chat_is_default_and_pending_turn_does_not_query_missing_data():
+def test_chat_is_default_and_second_turn_updates_dashboard_and_chat(ref):
     app = AppTest.from_file(str(APP), default_timeout=60).run()
     assert not app.exception
     assert app.session_state.page == "Pergunte ao Lampiadim"
     assert len(app.chat_input) == 1 and len(app.metric) == 0
     assert app.button(key="round_1").label == "1º turno · Disponível"
+    assert app.button(key="round_2").label == "2º turno · Disponível"
     app.button(key="round_2").click().run()
-    assert not app.exception
-    assert len(app.chat_input) == 0 and len(app.metric) == 0
-    assert any("Os dados do segundo turno ainda estão pendentes de integração à plataforma Lampiadim." in info.value for info in app.info)
+    assert not app.exception and len(app.chat_input) == 1
+    conversation = app.session_state.conversations[app.session_state.active_conversation]
+    assert conversation["state"].period == (2026, 2) and conversation["context"].turn == 2
+    app.chat_input[0].set_value("Quantos votos Lula teve em Americana?").run()
+    assert "2º turno" in app.session_state.conversations[app.session_state.active_conversation]["messages"][-1]["answer"].text
     app.button(key="nav_dashboard").click().run()
-    assert len(app.metric) == 0
+    national = ref.second_round("LULA") + ref.second_round("FLAVIO BOLSONARO")  # arquivos oficiais lidos diretamente
+    assert not app.exception and app.metric[0].value == f"{national:,}".replace(",", ".")
+    assert app.selectbox(key="turn").value == 2
     app.button(key="round_1").click().run()
     assert not app.exception and app.metric[0].value == "118.969.906"
 
@@ -114,7 +119,10 @@ def test_logo_returns_home_without_deleting_conversation():
     assert not app.exception and len(app.chat_message) == 0 and "pagina" not in app.query_params
     assert app.session_state.conversations[first]["messages"]
     app.button(key="nav_dashboard").click().run()
-    assert len(app.metric) == 4
+    labels = [m.label for m in app.metric]
+    assert labels[:4] == ["Votos nominais válidos", "Eleitorado cadastrado", "Eleitores no perfil", "Diferença entre os 2 mais votados"]
+    # Totalização oficial do 1º turno presente; horários do 1º turno só cobrem dois municípios, então nenhum total "Brasil".
+    assert "Comparecimento" in labels and "Urnas com registro" not in labels
     app.button(key="brand_home_sidebar").click().run()
     assert not app.exception and len(app.metric) == 0 and len(app.chat_input) == 1
     assert app.session_state.page == "Pergunte ao Lampiadim"

@@ -76,7 +76,7 @@ def test_empty_intersection_is_empty_and_rates_are_not_zero(data):
     assert all(t.empty for t in r["demographics"].values())
 
 
-@pytest.mark.parametrize("changes", [{"year": 2022}, {"turn": 2}, {"uf": "ZZ"}, {"candidate": "FAKE"}, {"ddd": 0}, {"municipality": "00000"}, {"idade": "Inventada"}])
+@pytest.mark.parametrize("changes", [{"year": 2022}, {"turn": 3}, {"uf": "ZZ"}, {"candidate": "FAKE"}, {"ddd": 0}, {"municipality": "00000"}, {"idade": "Inventada"}])
 def test_unsupported_filters_rejected(data, changes):
     with pytest.raises(ValueError):
         data.query(replace(Filters(), **changes))

@@ -63,6 +63,41 @@ na totalização e votos no exterior) sobre uma preparação concluída:
 Esse modo lê apenas o arquivo BR do ZIP de votação, reconcilia com `votos.parquet`
 e exige que os demais derivados estejam íntegros.
 
+### Segundo turno e totalização (portal de divulgação)
+
+Enquanto o arquivo consolidado do TSE não traz o 2º turno, os resultados vêm do
+portal oficial de divulgação. A coleta é retomável e respeita um limite de
+requisições (`RPS`, padrão 5 por segundo; `WORKERS`, padrão 8):
+
+```powershell
+.\.venv\Scripts\python.exe -I scripts/baixar_divulgacao.py 6258 6257
+.\.venv\Scripts\python.exe -I scripts/preparar_dados.py --divulgacao
+```
+
+`6258` é o 2º turno e `6257` o 1º. A preparação só aceita coletas completas,
+reconcilia municípios × UF × Brasil e confere que o 1º turno da divulgação é
+idêntico ao `votos.parquet`. Gera `votos_divulgacao.parquet`,
+`totalizacao.parquet` e as linhas do 2º turno em `candidatos.parquet`.
+
+### Horários das urnas (logs)
+
+```powershell
+.\.venv\Scripts\python.exe -I scripts/coletar_logs_urna.py 3221 --municipios sp:61310 sp:62910 --amostra 150
+.\.venv\Scripts\python.exe -I scripts/coletar_logs_urna.py 3220 --municipios sp:61310 sp:62910
+.\.venv\Scripts\python.exe -I scripts/preparar_dados.py --horarios
+```
+
+`3221` é o pleito do 2º turno e `3220` o do 1º; `--municipios` usa `uf:código
+TSE` e `--amostra` sorteia seções do Brasil para a validação cruzada. A
+preparação também lê o `secoes.csv` do urnas-tardias fixado por commit em
+`dados/brutos/urnas_tardias/`. Gera `horarios_secoes.parquet` e
+`horarios_faixas.parquet`. Um município só entra quando todas as suas seções
+foram coletadas. A metodologia está em
+[SEGUNDO_TURNO_HORARIOS_SIMULACAO.md](SEGUNDO_TURNO_HORARIOS_SIMULACAO.md).
+
+`--divulgacao` e `--horarios` reconstroem só os próprios derivados e exigem que
+os demais estejam íntegros. Uma preparação completa executa os dois.
+
 O modo `--skip-profile` exige o mesmo hash do ZIP cadastral. Faça atualizações com a aplicação
 parada; o script substitui os derivados e grava o manifesto ao final. Uma falha
 na preparação é explícita e pode exigir reexecução antes de iniciar o painel.
@@ -136,6 +171,8 @@ o que foi efetivamente executado.
 - `Lampiadim_MVP/assets/`: ilustração oficial com transparência, versões WebP/SVG,
   estilos centralizados, política de privacidade e malhas.
 - `scripts/preparar_dados.py`: preparação e linhagem reexecutáveis.
+- `scripts/baixar_divulgacao.py` e `scripts/coletar_logs_urna.py`: coleta
+  retomável dos resultados divulgados e dos logs das urnas.
 - `analise_eleitoral.ipynb`: análises anteriores, preservadas.
 
 ## Publicação
@@ -158,10 +195,14 @@ retenção e as condições dos fornecedores na política antes da publicação.
 
 ## Limitações dos insumos
 
-- Somente 2026, primeiro turno, presentes no ZIP de votação; segundo turno não
-  é inferido da data atual. Outros anos não são fabricados.
-- Comparecimento, abstenção e aptos da totalização exigem a base de detalhe da
-  apuração. `QT_ELEITORES` é cadastro e não substitui esses denominadores.
+- Somente 2026. O 1º turno vem do ZIP consolidado; o 2º, do portal de
+  divulgação, até o TSE publicar o consolidado. Outros anos não são fabricados.
+- Comparecimento, abstenção e aptos vêm da totalização divulgada pelo TSE.
+  `QT_ELEITORES` é cadastro e não substitui esses denominadores.
+- A distribuição por faixa horária só existe onde a linha do tempo completa foi
+  coletada (Americana e Campinas). Os logs contam 158.149 votos a menos que o
+  comparecimento oficial do 2º turno (0,12%): urnas substituídas e seções sem log.
+- Os horários nunca são atribuídos a candidaturas; os logs não registram a escolha.
 - DDD validado em 5.561 de 5.571 municípios. Dez pendências estão no manifesto
   e no painel. Associações duvidosas não são escolhidas automaticamente.
 - Nove grafias divergentes da planilha foram resolvidas por coincidência exata

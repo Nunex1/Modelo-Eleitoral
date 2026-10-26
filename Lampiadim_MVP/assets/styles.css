@@ -170,3 +170,6 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
   [data-testid="stBottomBlockContainer"]{padding:10px 1rem 14px}
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Simulações hipotéticas: aviso fixo, tom de alerta e hachura, nunca a identidade dos dados oficiais. */
+.simulation-banner{margin:6px 0 14px;padding:14px 18px;border:3px solid #B45309;border-radius:12px;background-color:#FEF3C7;background-image:repeating-linear-gradient(45deg,rgba(180,83,9,.10) 0 10px,transparent 10px 20px);color:#7C2D12;font-weight:800;font-size:1.12rem;letter-spacing:.01em;text-align:center;line-height:1.35}

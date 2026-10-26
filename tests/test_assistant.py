@@ -67,12 +67,12 @@ def test_dashboard_filters_seed_the_conversation(data, ref):
 
 
 def test_unsupported_year_and_turn_are_explicit(data):
-    for question in ["Votos em 2022", "Votos no segundo turno"]:
+    for question in ["Votos em 2022", "Votos no segundo turno de 2022"]:
         a = answer_question(question, data)
         assert "base" in a.text and not a.trace
 
 
-@pytest.mark.parametrize("question,expected", [("Qual a evolução histórica?", "apenas o 1º turno de 2026"), ("Quem vai ganhar?", "previsões"),
+@pytest.mark.parametrize("question,expected", [("Qual a evolução histórica?", "apenas os 1º e 2º turnos de 2026"), ("Quem vai ganhar?", "previsões"),
                                                ("Por que o Lula perdeu em Americana?", "explicações causais"), ("Quem ganhou para governador em SP?", "Presidente")])
 def test_missing_measure_never_invented(data, question, expected):
     a = answer_question(question, data)

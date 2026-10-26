@@ -14,7 +14,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "dados/tratados/lampiadim"
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
-OPTIONAL_OUTPUTS = {"candidatos.parquet"}
+OPTIONAL_OUTPUTS = {"candidatos.parquet", "votos_divulgacao.parquet", "totalizacao.parquet", "horarios_secoes.parquet", "horarios_faixas.parquet"}
 DIMENSIONS = {"sexo": "DS_GENERO", "identidade": "DS_IDENTIDADE_GENERO", "idade": "DS_FAIXA_ETARIA", "escolaridade": "DS_GRAU_ESCOLARIDADE"}
 STATE_CODES = dict(zip("RO AC AM RR PA AP TO MA PI CE RN PB PE AL SE BA MG ES RJ SP PR SC RS MS MT GO DF".split(), "11 12 13 14 15 16 17 21 22 23 24 25 26 27 28 29 31 32 33 35 41 42 43 50 51 52 53".split()))
 
@@ -60,6 +60,15 @@ class ElectoralData:
                 if hashlib.file_digest(f, "sha256").hexdigest() != expected:
                     raise ValueError(f"O arquivo {name} foi alterado após a preparação. Reprocesse os dados.")
         self.votes = pd.read_parquet(self.directory / "votos.parquet")
+        extra = self._optional("votos_divulgacao.parquet")
+        if extra is not None:
+            # O arquivo consolidado do TSE prevalece; a divulgação só cobre turnos ausentes dele.
+            present = set(map(tuple, self.votes[["ANO_ELEICAO", "NR_TURNO"]].drop_duplicates().itertuples(index=False)))
+            extra = extra[~extra[["ANO_ELEICAO", "NR_TURNO"]].apply(tuple, axis=1).isin(present)]
+            self.votes = pd.concat([self.votes, extra[self.votes.columns]], ignore_index=True)
+        self.totalization = self._optional("totalizacao.parquet")
+        self.timing = self._optional("horarios_secoes.parquet")
+        self.timing_hours = self._optional("horarios_faixas.parquet")
         self.profile = pd.read_parquet(self.directory / "perfil.parquet")
         self.towns = pd.read_parquet(self.directory / "municipios.parquet")
         self.towns["CD_MUNICIPIO"] = self.towns.CD_MUNICIPIO.astype(str)
@@ -77,8 +86,22 @@ class ElectoralData:
         self.categories = {name: sorted(self.profile[col].dropna().unique().tolist()) for name, col in DIMENSIONS.items()}
         self.city_records = self.towns.assign(NORMAL=self.towns.NM_MUNICIPIO.map(normalize)).to_dict("records")
 
+    def _optional(self, name):
+        path = self.directory / name
+        if name not in self.manifest["outputs"] or not path.exists():
+            return None
+        frame = pd.read_parquet(path)
+        if "CD_MUNICIPIO" in frame:
+            frame["CD_MUNICIPIO"] = frame.CD_MUNICIPIO.astype(str)
+        return frame
+
     def turns(self, year):
         return sorted(self.votes.loc[self.votes.ANO_ELEICAO.eq(year), "NR_TURNO"].unique().tolist())
+
+    def candidates_for(self, year, turn):
+        """Candidaturas com votos no período: o 2º turno tem só as duas mais votadas."""
+        rows = self.votes[self.votes.ANO_ELEICAO.eq(year) & self.votes.NR_TURNO.eq(turn)]
+        return sorted(rows.NM_URNA_CANDIDATO.unique().tolist())
 
     def validate(self, filters):
         if filters.year not in self.years or filters.turn not in self.turns(filters.year):

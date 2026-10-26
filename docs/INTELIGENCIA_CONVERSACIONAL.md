@@ -18,8 +18,10 @@ calcula, o verificador confere e o gerador comunica somente o que foi pedido.
   (sem exterior), perfil do eleitorado de 2026 (sexo, identidade de gênero, faixa
   etária, escolaridade), municípios com DDD Anatel e, agora, metadados oficiais
   das candidaturas (`candidatos.parquet`).
-- Limites reais: não há 2º turno, outros anos, comparecimento, abstenção,
-  brancos/nulos, raça/cor, renda nem estado civil na base preparada.
+- Limites reais na época: não havia 2º turno, outros anos, comparecimento,
+  abstenção, brancos/nulos, raça/cor, renda nem estado civil na base preparada.
+  O 2º turno, a totalização e os horários das urnas foram integrados depois
+  (veja [SEGUNDO_TURNO_HORARIOS_SIMULACAO.md](SEGUNDO_TURNO_HORARIOS_SIMULACAO.md)).
 
 ## Camadas implementadas
 
@@ -54,7 +56,7 @@ Funciona sem credenciais e em todos os testes. Ela não depende de frases fixas:
 ### Interpretação por modelo de linguagem (opcional)
 
 Com `OPENAI_API_KEY` e `OPENAI_MODEL` no ambiente do servidor, a pergunta é
-enviada à Responses API com 14 ferramentas em *function calling* estrito
+enviada à Responses API com 17 ferramentas em *function calling* estrito
 (`tool_choice: "required"`, `store: false`, timeout de 20 s). O modelo recebe a
 pergunta, o contexto estruturado (entidades em foco, sem texto de mensagens
 anteriores), a lista pública de candidaturas e os períodos disponíveis. Ele
@@ -88,6 +90,20 @@ regra de validação, retorno, fonte e limites. Todas são somente leitura.
 | `consultar_distribuicao_demografica` | distribuição do cadastro por dimensão |
 | `consultar_candidaturas` | lista, número, partido, nome completo, classificados para o 2º turno |
 | `contar_municipios` | municípios de um território (e lacunas de DDD) |
+| `comparar_turnos` | votos e % dos válidos de cada candidatura nos dois turnos, cada turno com o próprio denominador |
+| `consultar_horarios` | urnas com registro, urnas estendidas, votos computados após um horário, último voto, faixas horárias e ranking; nunca por candidatura |
+| `simular_distribuicao_demografica` | cenário hipotético proporcional ou ponderado; só com pedido explícito de simulação |
+
+O contrato com o modelo de linguagem acrescenta quatro ferramentas de controle:
+`continuar_consulta_anterior`, `informar_limitacao`, `pedir_esclarecimento` e
+`conversa`.
+
+Cada resultado declara sua natureza em `trace["natureza"]`, na legenda e em
+"Consultar fontes": **DADO OFICIAL** (votos, eleitores, contagens de log),
+**CÁLCULO ESTATÍSTICO** (percentuais, diferenças, rankings, comparações) ou
+**SIMULAÇÃO HIPOTÉTICA** (somente `simular_distribuicao_demografica`, sempre com
+o aviso "SIMULAÇÃO HIPOTÉTICA. NÃO REPRESENTA VOTOS REAIS POR PERFIL
+DEMOGRÁFICO.", fórmula, hipótese e fontes).
 
 A resolução de entidades (`entities.KnowledgeBase`) e a checagem de
 disponibilidade (`tools.validate` e `planner`) são as ferramentas conceituais
@@ -121,7 +137,13 @@ filtros do painel como ponto de partida.
 - Rankings de "cidades que mais votaram" usam votos absolutos, salvo pedido de percentual.
 - Votos e cadastro não se misturam. Perguntas que associam grupo demográfico a
   voto recebem "Não é possível determinar…". Uma razão entre votos e cadastro é
-  recusada, e o assistente oferece o percentual sobre os válidos.
+  recusada, e o assistente oferece o percentual sobre os válidos. A simulação
+  demográfica só responde a um pedido explícito ("simule"), e frases como
+  "realmente votaram" a desativam.
+- Horários vêm dos logs das urnas, que não registram candidatura. "Quantos votos
+  Lula recebeu depois das 17h?" é recusada com essa explicação.
+- Com dois turnos na base, o turno selecionado na interface é contexto explícito.
+  Sem ele, o assistente pergunta "1º ou 2º turno?".
 - Faixas etárias só são somadas quando coincidem exatamente com as faixas
   oficiais; "jovens" e "idosos" exigem definição.
 - DDD é área telefônica. A cobertura parcial de uma UF é informada.
@@ -184,8 +206,8 @@ completa também gera o arquivo. Sem ele, o assistente reconhece apenas os nomes
   aprendizado estatístico. Formulações muito distantes dos padrões cobertos podem
   pedir esclarecimento em vez de responder. O modo com modelo de linguagem amplia
   essa cobertura, mas não foi homologado com um provedor real.
-- A base contém somente o 1º turno presidencial de 2026. A lógica de ano e turno
-  ambíguos foi validada com a base sintética.
+- A base contém 2026, 1º e 2º turnos presidenciais. A lógica de ano ambíguo foi
+  validada com a base sintética.
 - Desempenho medido localmente: mediana de ~10 ms por pergunta e p95 de ~120 ms.
   Consultas nacionais ao cadastro levam até ~0,7 s, por causa da verificação
   independente.
