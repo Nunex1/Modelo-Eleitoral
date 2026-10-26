@@ -1,0 +1,2 @@
+-r Lampiadim_MVP/requirements.txt
+pytest>=9,<10

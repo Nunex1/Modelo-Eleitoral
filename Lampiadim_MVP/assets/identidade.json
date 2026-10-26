@@ -1,0 +1,16 @@
+{
+  "original": "image.png",
+  "original_format": "JPEG RGB (apesar da extensão .png)",
+  "original_sha256": "18de69ce52383129f568eb4ab2619d191df8b4de8f931fde14efdb9626ff3061",
+  "master": "lampiadim_mascote.png",
+  "master_size": [
+    1122,
+    1402
+  ],
+  "master_sha256": "59c475c236c6dc3286503268ff5633653b81586fe102ddfc6ab645bfd0527867",
+  "web_size": [
+    480,
+    600
+  ],
+  "method": "Fundo removido por image_gen; redução WebP sem perdas; avatar e favicon são janelas SVG sobre a mesma imagem, sem redesenho ou filtro de cor."
+}

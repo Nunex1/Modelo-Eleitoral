@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!Lampiadim_MVP/
+!Lampiadim_MVP/app.py
+!Lampiadim_MVP/requirements.txt
+!Lampiadim_MVP/lampiadim/
+!Lampiadim_MVP/lampiadim/*.py
+!Lampiadim_MVP/assets/
+!Lampiadim_MVP/assets/*
+!dados/
+!dados/tratados/
+!dados/tratados/lampiadim/
+!dados/tratados/lampiadim/*
+!.streamlit/
+!.streamlit/config.toml

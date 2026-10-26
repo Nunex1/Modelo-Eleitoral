@@ -21,3 +21,9 @@ dados/tratados/
 
 # Configuracoes locais
 .vscode/
+
+# Evidência local e segredos de publicação
+.pytest_cache/
+.streamlit/secrets.toml
+resultados/*.png
+resultados/*.zip
