@@ -1,0 +1,23 @@
+# Ambiente virtual Python
+.venv/
+venv/
+
+# Arquivos temporarios
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+
+# Bases eleitorais
+dados/brutos/
+dados/tratados/
+
+# Arquivos grandes
+*.zip
+*.parquet
+
+# Credenciais
+.env
+.env.*
+
+# Configuracoes locais
+.vscode/
