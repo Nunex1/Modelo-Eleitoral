@@ -1,4 +1,12 @@
-# Lampiadim | MVP local
+# Lampiadim | Aplicação local
+
+O MVP foi evoluído no mesmo diretório. Para executar a versão atual, use
+`iniciar_lampiadim.ps1` na **raiz do projeto** e siga `docs/EXECUCAO.md`.
+As instruções abaixo registram o funcionamento anterior e a origem dos CSVs;
+os arquivos originais continuam preservados. A versão atual usa derivados
+auditados em `dados/tratados/lampiadim/`, incluindo idade e escolaridade.
+
+## Registro das instruções do MVP anterior
 
 ## Arquivos necessários na mesma pasta
 
