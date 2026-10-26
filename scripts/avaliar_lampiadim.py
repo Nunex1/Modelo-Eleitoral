@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Lampiadim_MVP"))
 sys.path.insert(0, str(ROOT / "tests"))
 from lampiadim.assistant import ConversationState, answer_question  # noqa: E402
-from lampiadim.data import ElectoralData  # noqa: E402
+from lampiadim.data import ElectoralData, Filters  # noqa: E402
 from lampiadim.engine import Engine  # noqa: E402
 from referencia import Reference  # noqa: E402
 
@@ -43,7 +43,7 @@ def evaluate(data=None, cases_path=CASES):
     latencies, details = [], []
     for case in cases:
         expected = case["esperado"]
-        state = ConversationState()
+        state = ConversationState.from_filters(Filters())  # contexto da interface: 1º turno selecionado
         for question in case["conversa"]:
             started = time.perf_counter()
             answer = answer_question(question, data, state)

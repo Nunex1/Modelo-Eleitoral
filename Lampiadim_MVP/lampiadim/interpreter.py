@@ -99,6 +99,19 @@ FOLLOWUP_STARTS = ("E ", "TAMBEM ", "AGORA ", "MAS E ", "E QUANTO ", "E SOBRE ",
 METRIC_ONLY = {"PERCENTUAL": "percentual", "EM VOTOS": "votos", "NUMERO ABSOLUTO": "votos", "NUMEROS ABSOLUTOS": "votos",
                "EM NUMEROS": "votos", "VALOR ABSOLUTO": "votos", "QUANTIDADE DE VOTOS": "votos"}
 PLACE_CUES = {"EM", "CIDADE", "MUNICIPIO", "CIDADES", "MUNICIPIOS"}
+SIMULATION_WORDS = {"SIMULE", "SIMULAR", "SIMULA", "SIMULACAO", "SIMULACOES", "SIMULADO", "SIMULADA", "SIMULADOS", "SIMULADAS", "HIPOTETICO",
+                    "HIPOTETICA", "HIPOTETICOS", "HIPOTETICAS", "HIPOTESE", "CENARIO", "CONTRAFACTUAL"}
+REALITY_PHRASES = ["REALMENTE", "DE VERDADE", "NA REALIDADE", "DE FATO", "NA VERDADE QUANTOS", "VOTOS REAIS", "NUMERO REAL", "DADO REAL"]
+DIMENSION_WORDS = [("sexo", {"SEXO", "SEXOS", "GENERO", "HOMENS", "MULHERES", "HOMEM", "MULHER", "FEMININO", "MASCULINO", "ELEITORAS"}),
+                   ("identidade", {"IDENTIDADE", "TRANSGENERO", "TRANSGENEROS", "CISGENERO", "CISGENEROS"}),
+                   ("idade", {"IDADE", "IDADES", "ETARIA", "ETARIAS", "ETARIO", "JOVENS", "IDOSOS"}),
+                   ("escolaridade", {"ESCOLARIDADE", "INSTRUCAO", "EDUCACAO", "ESCOLAR"})]
+TIME_WORDS = {"HORARIO", "HORARIOS", "HORA", "HORAS", "ENCERRAMENTO", "ENCERRAMENTOS", "ENCERRARAM", "ENCERROU", "ENCERRADAS", "ESTENDIDA",
+              "ESTENDIDAS", "TARDIA", "TARDIAS", "FECHARAM", "FECHOU", "FECHAMENTO", "ABERTURA", "ABRIRAM", "PRORROGADA", "PRORROGADAS"}
+TURNS_PHRASES = ["OS DOIS TURNOS", "AMBOS OS TURNOS", "ENTRE OS TURNOS", "NOS DOIS TURNOS", "PRIMEIRO E SEGUNDO TURNO", "PRIMEIRO E NO SEGUNDO TURNO",
+                 "PRIMEIRO E O SEGUNDO TURNO", "1O E 2O TURNO", "1O E NO 2O TURNO", "DO PRIMEIRO PARA O SEGUNDO", "COMPARAR OS TURNOS", "DE UM TURNO PARA O OUTRO"]
+FACTOR_PATTERNS = [re.compile(r"(?:peso|fator|multiplicador)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)\s*(?:x\s*)?(?:para|nos|nas|aos|às|as|a|em|no|na)?\s*(?:as|os)?\s*(mulheres|homens|feminino|masculino|eleitoras)", re.I),
+                   re.compile(r"(mulheres|homens|feminino|masculino|eleitoras)\s*(?:com\s*)?(?:peso|fator|multiplicador)\s*(?:de\s*)?(\d+(?:[.,]\d+)?)", re.I)]
 SECOND_ROUND_QUESTION = re.compile(r"(QUEM|QUAIS|QUAL|QUANTOS|QUE CANDIDAT\w*) .*(FOI|FORAM|PASSOU|PASSARAM|CLASSIFIC\w*|VAI|VAO|DISPUT\w*|CHEGOU|CHEGARAM|AVANCOU|AVANCARAM) .*(PARA O|AO|NO|PRO) (SEGUNDO|2O|2) TURNO")
 
 
@@ -134,6 +147,7 @@ class Interpreter:
         q = " " + " ".join(norms) + " "
         frame = Frame("")
         frame.asserted = asserted_numbers(text)
+        frame.factors = self._factors(text)
         issues = []
 
         # Entidades ---------------------------------------------------------
@@ -187,8 +201,11 @@ class Interpreter:
         frame.territories = list(dict.fromkeys(frame.territories))
 
         # Referências ao contexto -------------------------------------------
+        refs_q = q  # "os dois turnos" e "ambos os turnos" não se referem a candidaturas
+        for phrase in TURNS_PHRASES:
+            refs_q = refs_q.replace(f" {phrase} ", " ")
         for phrase, ref in sorted(CANDIDATE_REFS.items(), key=lambda kv: -len(kv[0])):
-            if has(q, phrase) and not (ref == "par" and has(q, *[p for p, r in PLACE_REFS.items() if r == "par"])):
+            if has(refs_q, phrase) and not (ref == "par" and has(q, *[p for p, r in PLACE_REFS.items() if r == "par"])):
                 frame.candidate_ref = ref
                 break
         for phrase, ref in sorted(PLACE_REFS.items(), key=lambda kv: -len(kv[0])):
@@ -384,6 +401,20 @@ class Interpreter:
                     return ("candidato_inexistente", {"text": tokens[i].orig})
         return None
 
+    def _factors(self, text):
+        """Fatores hipotéticos ditos na pergunta ('peso 1,2 para mulheres'); só para o cenário ponderado."""
+        found = {}
+        plain = text.replace("ã", "a")
+        for pattern in FACTOR_PATTERNS:
+            for match in pattern.finditer(plain):
+                groups = match.groups()
+                number, group = (groups[0], groups[1]) if groups[0][0].isdigit() else (groups[1], groups[0])
+                category = "FEMININO" if group.lower() in {"mulheres", "feminino", "eleitoras"} else "MASCULINO"
+                value = self._category("sexo", category)
+                if value:
+                    found.setdefault("sexo", {})[value] = float(number.replace(",", "."))
+        return found
+
     # ------------------------------------------------------------------ período
     def _turn(self, q):
         if re.search(r" (SEGUNDO|2O|2A|2) TURNO ", q) or re.search(r" (NO|O|DO) SEGUNDO $", q) or has(q, "VE O SEGUNDO", "SEGUNDO TURNO"):
@@ -525,6 +556,52 @@ class Interpreter:
             return
         if words & OTHER_OFFICE:
             return limitation("outro_cargo")
+
+        # Simulação hipotética: só com pedido explícito, e nunca quando se pergunta pelo voto real.
+        if (words & SIMULATION_WORDS or has(q, "MESMA SIMULACAO", "DISTRIBUICAO HIPOTETICA")) and not has(q, *REALITY_PHRASES):
+            f.intent = "simulacao"
+            f.dimensions = [name for name, cues in sorted(DIMENSION_WORDS, key=lambda item: min((norms.index(w) for w in item[1] if w in norms), default=999))
+                            if words & cues][:2]
+            f.categories = {}  # a simulação usa a composição completa do eleitorado do território
+            f.followup = f.followup or has(q, "MESMA SIMULACAO", "MESMO CENARIO", "A MESMA", "O MESMO")
+            return
+
+        # Horários das urnas: os logs não revelam candidaturas.
+        hour = re.search(r" (\d{1,2}) ?H(\d{2})? | (?:DEPOIS|APOS|ANTES|ATE|A PARTIR) (?:DAS|AS|DA|A|DE)? ?(\d{1,2}) ", q)
+        timing = bool(words & TIME_WORDS) or has(q, "ULTIMO VOTO", "FAIXA HORARIA", "FAIXAS HORARIAS", "POR HORA") or \
+            bool(hour and (words & {"VOTOS", "URNAS", "VOTO", "VOTARAM", "VOTOU", "COMPUTADOS", "ELEITORES", "SECOES"}))
+        if timing and not has(q, "HORARIO DE VERAO") and not (f.detail.get("unavailable_dimension")):
+            if has_candidate or has(q, "EM QUEM", "QUAL CANDIDATO", "PARA QUEM"):
+                return limitation("horario_por_candidatura")
+            f.intent = "horarios"
+            if hour:
+                f.detail["hour"] = int(hour.group(1) or hour.group(3))
+                f.detail["minute"] = int(hour.group(2) or 0)
+            ranking_place = re.search(r" (QUAIS|QUAL|QUE|ONDE) .*(ESTADOS|ESTADO|UFS|MUNICIPIOS|MUNICIPIO|CIDADES|CIDADE) ", q) and (words & {"MAIS", "MAIOR", "MAIORES"})
+            if ranking_place:
+                f.metric = "ranking"
+                f.level = "uf" if words & {"ESTADOS", "ESTADO", "UFS"} and not words & {"MUNICIPIOS", "MUNICIPIO", "CIDADES", "CIDADE"} else "municipio"
+                f.order = "pct" if words & PCT_WORDS or has(q, "PROPORCAO") else "abs"
+                f.limit = self._limit(norms) or (1 if words & {"ESTADO", "MUNICIPIO", "CIDADE", "QUAL"} and not words & {"QUAIS"} else 5)
+            elif has(q, "ULTIMO VOTO"):
+                f.metric = "ultimo_voto"
+            elif has(q, "FAIXA HORARIA", "FAIXAS HORARIAS", "POR HORA", "HORA A HORA", "CADA HORA") or (words & {"DISTRIBUICAO"} and words & {"HORA", "HORAS", "HORARIO", "HORARIOS"}) \
+                    or re.search(r" ENTRE (AS )?\d{1,2} ?H? E (AS )?\d{1,2} ?H? ", q):
+                f.metric = "faixas"
+            elif re.search(r" (QUAIS|QUAL) (SAO |FORAM )?(AS )?(URNAS|SECOES|SECAO|URNA) ", q):
+                f.metric, f.limit = "urnas_tardias", self._limit(norms) or 10
+            elif words & {"ESTENDIDA", "ESTENDIDAS", "TARDIA", "TARDIAS", "PRORROGADA", "PRORROGADAS"} or has(q, "ENCERRAMENTO TARDIO", "FECHARAM DEPOIS", "ENCERRARAM DEPOIS", "QUANTAS URNAS"):
+                f.metric = "estendidas"
+            elif hour and words & {"VOTOS", "VOTO", "VOTARAM", "COMPUTADOS"}:
+                f.metric = "votos_apos_17h" if f.detail["hour"] == 17 and not f.detail["minute"] else "votos_apos_hora"
+            else:
+                f.metric = "resumo"
+            return
+
+        # Comparação entre turnos do mesmo território.
+        if has(q, *TURNS_PHRASES):
+            f.intent, f.turn = "comparar_turnos", None
+            return
         if group and vote_choice and candidate_choice:
             unavailable = f.detail.get("unavailable_dimension")
             label = ARTICLED.get(unavailable, unavailable) or DIMENSION_LABEL.get(f.dimension or next(iter(f.categories), ""), "")

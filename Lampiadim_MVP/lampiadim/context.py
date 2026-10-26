@@ -34,6 +34,8 @@ class Frame:
     correction: bool = False
     asserted: list = field(default_factory=list)  # números afirmados pelo usuário
     note: str = ""                                # observação obrigatória na resposta
+    dimensions: list = field(default_factory=list)        # recortes da simulação hipotética (1–2)
+    factors: dict = field(default_factory=dict)           # fatores hipotéticos por dimensão e categoria
 
     def summary(self):
         return {k: v for k, v in self.__dict__.items() if v not in (None, "", [], {}, False)}
@@ -60,10 +62,14 @@ class ConversationState:
     leaders: tuple = ()                               # 1º e 2º do último resultado consultado
     pending: dict | None = None                       # esclarecimento aguardando resposta
     exchanges: int = 0
+    dimensions: tuple = ()                            # recortes da última simulação
+    factors: dict = field(default_factory=dict)       # fatores da última simulação
 
     @classmethod
     def from_filters(cls, filters):
-        return cls(base=filters or Filters())
+        """Contexto inicial a partir dos filtros visíveis na interface (turno selecionado incluído)."""
+        filters = filters or Filters()
+        return cls(base=filters, period=(filters.year, filters.turn), period_explicit=True)
 
     def remember_candidates(self, keys):
         recent = tuple(k for k in self.recent if k not in keys) + tuple(keys)
@@ -80,5 +86,6 @@ class ConversationState:
                 "territorios_em_foco": [t.label for t in self.territories], "territorios_recentes": [t.label for t in self.recent_places],
                 "escopo_ranking": self.scope.label if self.scope else None, "ultima_intencao": self.intent, "ultima_metrica": self.metric,
                 "dimensao": self.dimension, "categorias": {k: list(v) for k, v in self.categories.items()},
+                "simulacao": {"dimensoes": list(self.dimensions), "fatores": self.factors} if self.dimensions else None,
                 "esclarecimento_pendente": (self.pending or {}).get("field"),
                 "filtros_do_painel": {k: v for k, v in self.base.__dict__.items() if v not in ("", None)}}

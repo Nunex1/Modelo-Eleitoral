@@ -45,6 +45,82 @@ def demographic(table, dimension):
     return fig
 
 
+LIGHT_BLUE = "#7C9CCF"
+# Simulações usam tom de alerta e hachura: nunca a cor dos dados oficiais.
+SIM_FILL, SIM_LINE = "#F5B544", "#9A3412"
+SIMULATION_WARNING = "SIMULAÇÃO HIPOTÉTICA. NÃO REPRESENTA VOTOS REAIS POR PERFIL DEMOGRÁFICO."
+
+
+def turns(frame):
+    """Percentual dos válidos por candidatura em cada turno (denominadores próprios de cada turno)."""
+    fig = go.Figure()
+    order = frame.groupby("NM_URNA_CANDIDATO").PERCENTUAL.max().sort_values().index.tolist()
+    for turn, color in [(1, LIGHT_BLUE), (2, BLUE)]:
+        rows = frame[frame.NR_TURNO.eq(turn)].set_index("NM_URNA_CANDIDATO").reindex(order)
+        fig.add_trace(go.Bar(name=f"{turn}º turno", x=rows.PERCENTUAL.tolist(), y=order, orientation="h", marker_color=color,
+                             text=[percent(x) if x == x else "" for x in rows.PERCENTUAL], textposition="outside", cliponaxis=False,
+                             customdata=[[integer(v) if v == v else "—"] for v in rows.VOTOS], hovertemplate="<b>%{y}</b> · " + f"{turn}º turno" + "<br>%{customdata[0]} votos<br>%{x:.2f}% dos válidos<extra></extra>"))
+    base(fig, max(260, len(order) * 46 + 70))
+    fig.update_layout(barmode="group", bargap=.25, legend=dict(orientation="h", y=1.08, x=0))
+    fig.update_xaxes(range=[0, 115], ticksuffix="%")
+    return fig
+
+
+def hours(table):
+    """Votos computados por faixa horária (horário de Brasília). Nenhuma informação de candidatura."""
+    labels = [f"{int(h):02d}h–{int(h) + 1:02d}h" for h in table.HORA]
+    fig = go.Figure(go.Bar(x=labels, y=table.VOTOS.tolist(), marker_color=TEAL, hovertemplate="%{x}<br>%{y:,.0f} votos computados<extra></extra>"))
+    base(fig, 320)
+    fig.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#ebe8e0", tickformat=",.0f")
+    fig.update_xaxes(showgrid=False, tickangle=-35)
+    return fig
+
+
+def closings(sections):
+    """Encerramento das urnas em blocos de 15 minutos, com a linha do critério de urna estendida (17h45)."""
+    minutes = sections.ENCERRAMENTO.map(lambda t: int(t[:2]) * 60 + int(t[3:5]))
+    buckets = (minutes // 15 * 15).clip(lower=16 * 60 + 30, upper=20 * 60)
+    counts = buckets.value_counts().sort_index()
+    labels = [f"{m // 60:02d}h{m % 60:02d}" for m in counts.index]
+    colors = [BLUE if m < 17 * 60 + 45 else "#B45309" for m in counts.index]
+    fig = go.Figure(go.Bar(x=labels, y=counts.tolist(), marker_color=colors, hovertemplate="Encerramento a partir de %{x}<br>%{y:,.0f} urnas<extra></extra>"))
+    base(fig, 300)
+    if counts.max() > 50 * max(1, counts.min()):
+        # Escala logarítmica com marcas só em potências de 10: poucas urnas tardias continuam visíveis.
+        ticks = [10 ** k for k in range(0, int(math.log10(counts.max())) + 2)]
+        fig.update_yaxes(type="log", tickvals=ticks, ticktext=[integer(t) for t in ticks], title="Urnas (escala log)", showgrid=True, gridcolor="#ebe8e0")
+    else:
+        fig.update_yaxes(showgrid=True, gridcolor="#ebe8e0", title="Urnas")
+    fig.update_xaxes(showgrid=False, tickangle=-35)
+    if "17h45" in labels:
+        fig.add_vline(x=labels.index("17h45") - .5, line_dash="dash", line_color="#9A3412", annotation_text="17h45 · urna estendida", annotation_position="top right")
+    return fig
+
+
+def simulation(runs, dimensions):
+    """Votos SIMULADOS por categoria: aviso permanente no topo, marca d'água e hachura de alerta."""
+    fig = go.Figure()
+    patterns = ["/", "x"]
+    for i, run in enumerate(runs):
+        rows = run["rows"]
+        labels = rows[list(dimensions)].astype(str).agg(" · ".join, axis=1).map(lambda s: s if any(c.isdigit() for c in s) else s.capitalize())
+        fig.add_trace(go.Bar(name=f"{run['display']} · votos simulados", x=labels.tolist(), y=rows.VOTOS_SIMULADOS.tolist(),
+                             marker=dict(color=SIM_FILL, line=dict(color=SIM_LINE, width=1.2), pattern=dict(shape=patterns[i % 2], fgcolor=SIM_LINE, solidity=.18)),
+                             customdata=[[integer(v), percent(100 * p)] for v, p in zip(rows.VOTOS_SIMULADOS, rows.PARTICIPACAO)],
+                             hovertemplate="<b>%{x}</b><br>SIMULAÇÃO HIPOTÉTICA<br>%{customdata[0]} votos simulados<br>%{customdata[1]} do eleitorado<extra></extra>"))
+    base(fig, 450)
+    # Três linhas curtas: o aviso cabe inteiro também em telas de celular (anotações não quebram linha sozinhas).
+    warning = SIMULATION_WARNING.replace(". ", ".<br>", 1).replace(" POR PERFIL", "<br>POR PERFIL")
+    fig.update_layout(barmode="group", margin=dict(l=8, r=25, t=130, b=25), legend=dict(orientation="h", y=-0.22, x=0),
+                      annotations=[dict(text="<b>" + warning + "</b>", xref="paper", yref="paper", x=0.5, y=1.04, yanchor="bottom", showarrow=False, align="center",
+                                        font=dict(size=13, color="#7C2D12"), bgcolor="#FEF3C7", bordercolor="#B45309", borderwidth=2, borderpad=8),
+                                   dict(text="HIPOTÉTICO", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, textangle=-18,
+                                        font=dict(size=72, color="rgba(180,83,9,0.13)"))])
+    fig.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#ebe8e0", tickformat=",.0f", title="Votos simulados")
+    fig.update_xaxes(showgrid=False, tickangle=-30)
+    return fig
+
+
 @lru_cache(maxsize=2)
 def geometry(level):
     filename = "brasil_uf.geojson" if level == "uf" else "brasil_municipios.geojson"

@@ -14,7 +14,7 @@ from .entities import BRASIL
 from .language import tokenize
 from .tools import Plan
 
-CANDIDATE_INTENTS = {"votos", "comparar_candidatos", "vitorias"}
+CANDIDATE_INTENTS = {"votos", "comparar_candidatos", "vitorias", "simulacao", "comparar_turnos"}
 
 
 @dataclass
@@ -258,6 +258,8 @@ class Planner:
             candidates = list(dict.fromkeys([k for k in state.recent if k not in candidates][-1:] + candidates))
         elif not candidates and frame.candidate_ref in {"vencedor", "top2"}:
             candidates = []
+        elif not candidates and state.candidates and intent == "simulacao":
+            candidates = list(state.candidates)  # "Simule por escolaridade": candidatura em foco na conversa
         elif not candidates and state.candidates and intent == "comparar_territorios":
             # Mantém a métrica da consulta anterior apenas quando ela tratava de uma única candidatura.
             if len(state.candidates) == 1 and state.intent in {"votos", "comparar_territorios"} and frame.metric != "geral":
@@ -287,6 +289,23 @@ class Planner:
             return self._ask("metrica_ranking", frame, intent, "metrica", ["votos_candidato", "percentual_candidato"]), frame
         if intent == "vitorias" and len(candidates) != 1:
             return Reply("esclarecimento", "candidato_ausente"), frame
+        if intent == "simulacao":
+            same = frame.followup or state.intent == "simulacao"
+            frame.dimensions = list(frame.dimensions) or ([frame.dimension] if frame.dimension else []) or (list(state.dimensions) if same else [])
+            frame.factors = frame.factors or (dict(state.factors) if same and state.intent == "simulacao" else {})
+            if not candidates:
+                return Reply("esclarecimento", "candidato_ausente"), frame
+            if not frame.dimensions:
+                return self._ask("simulacao_sem_dimensao", frame, intent, "dimensao", ["sexo", "identidade", "idade", "escolaridade"]), frame
+        if intent == "comparar_turnos":
+            year = frame.year or (state.period[0] if state.period else max(years))
+            turns = sorted(t for y, t in self.kb.periods if y == year)
+            if len(turns) < 2:
+                return Reply("limitacao", "turnos_insuficientes", {"year": year}), frame
+            frame.candidates = candidates
+            territory = self._territories(frame, state, intent)[0]
+            frame.territories = [territory]
+            return Plan("comparar_turnos", (year, turns[-1]), tuple(candidates[:2]), territories=(territory,)), frame
 
         # Período -----------------------------------------------------------
         profile_intent = intent in {"eleitorado", "distribuicao", "contar_municipios"} or (intent == "ranking" and frame.metric in {"eleitores", "percentual_eleitores"})
@@ -305,6 +324,7 @@ class Planner:
                 return problem, replace(frame, year=period[0] if period else frame.year, turn=period[1] if period else frame.turn)
 
         # Território --------------------------------------------------------
+        asked_places = list(frame.territories)
         territories = self._territories(frame, state, intent) if intent not in {"ranking", "vitorias", "candidaturas"} else list(frame.territories)
         frame.territories = territories
         frame.candidates = candidates
@@ -325,7 +345,20 @@ class Planner:
             categories = {k: v for k, v in frame.categories.items() if v}
             return Plan("gerar_ranking_municipal", period, tuple(candidates[:1]), scope=scope, metric=frame.metric or "votos_validos", categories=categories,
                         limit=frame.limit or (None if frame.position else 1), position=frame.position, order=frame.order or "desc", level=frame.level or "municipio"), frame
+        if intent == "horarios" and frame.metric == "ranking":
+            scope = next((t for t in asked_places if t.kind in {"brasil", "regiao", "uf", "ddd"}), None)
+            if scope is None or (frame.level == "uf" and scope.kind not in {"brasil", "regiao"}):
+                scope = BRASIL
+            frame.territories = [scope]
+            return Plan("consultar_horarios", period, territories=(scope,), metric="ranking", level=frame.level or "municipio", limit=frame.limit,
+                        order=frame.order or "abs"), frame
         territory = territories[0]
+        if intent == "horarios":
+            return Plan("consultar_horarios", period, territories=(territory,), metric=frame.metric or "resumo", limit=frame.limit,
+                        hour=frame.detail.get("hour")), frame
+        if intent == "simulacao":
+            return Plan("simular_distribuicao_demografica", period, tuple(candidates[:2]), territories=(territory,), dimensions=tuple(frame.dimensions[:2]),
+                        factors={k: dict(v) for k, v in frame.factors.items() if k in frame.dimensions}), frame
         if intent == "contar_municipios":
             return Plan("contar_municipios", None, territories=(territory,)), frame
         if intent == "eleitorado":
@@ -375,6 +408,8 @@ class Planner:
             new = replace(new, scope=frame.territories[0], limit=frame.limit, position=frame.position, order=frame.order, level=frame.level)
         if frame.intent in {"eleitorado", "distribuicao"}:
             new = replace(new, dimension=frame.dimension, categories=dict(frame.categories))
+        if frame.intent == "simulacao" and frame.dimensions:
+            new = replace(new, dimensions=tuple(frame.dimensions), factors=dict(frame.factors))
         if result is not None and plan is not None and plan.tool in {"consultar_resultado_territorial", "comparar_candidatos", "consultar_votos"}:
             rows = result.data.get("all", result.data.get("rows"))
             if rows is not None and len(rows) and "NM_URNA_CANDIDATO" in rows:

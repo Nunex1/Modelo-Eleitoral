@@ -4,9 +4,11 @@ Calculadas diretamente dos CSVs originais do notebook (votação e perfil por se
 para idade/escolaridade/DDD, dos derivados preparados lidos com Pandas puro. Os
 valores esperados dos testes e da avaliação vêm daqui, nunca de um modelo de linguagem.
 """
+import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,6 +71,46 @@ class Reference:
             p = p[p.DS_GENERO == sexo]
         return int(p.QT_ELEITORES.sum())
 
+    def divulgacao(self, election, uf, code=None):
+        """Votos por candidatura num arquivo oficial de divulgação do TSE (-u.json), lido sem o pipeline."""
+        folder = ROOT / "dados/brutos/divulgacao_2026" / election / uf.lower()
+        path = folder / (f"{uf.lower()}{code}-c0001-e00{election}-u.json" if code else f"{uf.lower()}-c0001-e00{election}-u.json")
+        if not path.exists():
+            pytest.skip("arquivos brutos de divulgação ausentes nesta máquina")
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        return {c["nmu"]: int(c["vap"]) for g in doc["carg"][0]["agr"] for party in g["par"] for c in party["cand"]}
+
+    def second_round(self, candidate, code=None, uf=None):
+        """Votos do 2º turno: município, UF ou Brasil sem exterior (Brasil − exterior)."""
+        if code:
+            town = self.towns[self.towns.CD_MUNICIPIO.astype(str) == code].iloc[0]
+            return self.divulgacao("6258", town.SG_UF, code)[candidate]
+        if uf:
+            return self.divulgacao("6258", uf)[candidate]
+        return self.divulgacao("6258", "br")[candidate] - self.divulgacao("6258", "zz")[candidate]
+
+    def second_round_share(self, candidate, code=None, uf=None):
+        votes = {c: self.second_round(c, code, uf) for c in ["LULA", "FLAVIO BOLSONARO"]}
+        return 100 * votes[candidate] / sum(votes.values())
+
+    def timing(self):
+        """secoes.csv do urnas-tardias, fixado por commit, lido diretamente (sem o pipeline)."""
+        files = sorted((ROOT / "dados/brutos/urnas_tardias").glob("*/secoes.csv"))
+        if not files:
+            pytest.skip("secoes.csv do urnas-tardias ausente nesta máquina")
+        frame = pd.read_csv(files[-1], dtype={"cd_mun": str, "zona": str, "secao": str})
+        return frame[frame.uf != "ZZ"]
+
+    def simulation(self, candidate, code, turn):
+        """Simulação proporcional por sexo: votos oficiais × participação no cadastro, maiores restos."""
+        votes = self.second_round(candidate, code) if turn == 2 else self.candidate_votes(candidate, code)
+        groups = self.profile[self.profile.CD_MUNICIPIO == code].groupby("DS_GENERO").QT_ELEITORES.sum()
+        exact = {group: votes * n / groups.sum() for group, n in groups.items()}
+        result = {group: int(value) for group, value in exact.items()}
+        for group in sorted(exact, key=lambda g: exact[g] - result[g], reverse=True)[:votes - sum(result.values())]:
+            result[group] += 1
+        return result
+
     def expected(self, spec):
         """Números esperados (já formatados em pt-BR) para uma especificação de referência."""
         kind = spec["tipo"]
@@ -92,4 +134,16 @@ class Reference:
         if kind == "ddd_eleitorado":
             codes = set(self.towns.loc[self.towns.DDD.eq(spec["ddd"]).fillna(False), "CD_MUNICIPIO"].astype(str))
             return [br(self.electorate(codes=codes))]
+        if kind == "votos_2t":
+            return [br(self.second_round(spec["candidato"], code, uf))]
+        if kind == "turnos":
+            return [br(n) for c in spec["candidatos"] for n in (self.candidate_votes(c, code, uf), self.second_round(c, code, uf))]
+        if kind == "simulacao_sexo":
+            return [br(n) for n in self.simulation(spec["candidato"], code, spec["turno"]).values()]
+        if kind == "horarios":
+            sections = self.timing()
+            sections = sections[sections.cd_mun == code]
+            if spec["metrica"] == "estendidas":
+                return [br(sections.classe.eq("estendida").sum()), br(len(sections))]
+            return [br(sections.votos_apos_17h.sum())]
         raise ValueError(kind)

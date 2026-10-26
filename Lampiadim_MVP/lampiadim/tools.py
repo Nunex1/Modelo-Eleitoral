@@ -45,6 +45,33 @@ class Plan:
     position: int | None = None
     order: str = "desc"
     level: str = "municipio"
+    dimensions: tuple = ()
+    factors: dict = field(default_factory=dict)
+    hour: int | None = None
+
+
+# Natureza da informação, registrada em cada consulta e exibida nas respostas.
+OFFICIAL, CALCULATION, SIMULATION = "DADO OFICIAL", "CÁLCULO ESTATÍSTICO", "SIMULAÇÃO HIPOTÉTICA"
+SIMULATION_WARNING = "SIMULAÇÃO HIPOTÉTICA. NÃO REPRESENTA VOTOS REAIS POR PERFIL DEMOGRÁFICO."
+SIMULATION_FORMULA = "votos simulados do grupo = votos oficiais da candidatura × peso do grupo ÷ soma dos pesos; peso = eleitores do grupo ÷ eleitores do recorte (× fator hipotético, no cenário ponderado)"
+SIMULATION_HYPOTHESIS = ("Supõe artificialmente a mesma distribuição relativa de votos em todos os grupos (ou a alteração escolhida pelo usuário). "
+                         "Não mede preferência, comparecimento, abstenção nem o voto de pessoa alguma: o voto é secreto e os dados públicos não ligam perfil a candidatura.")
+
+
+def nature(plan):
+    if plan.tool == "simular_distribuicao_demografica":
+        return SIMULATION
+    if plan.tool in {"consultar_candidaturas", "contar_municipios"}:
+        return OFFICIAL
+    if plan.tool == "consultar_votos":
+        return OFFICIAL if plan.metric == "votos" else CALCULATION
+    if plan.tool == "consultar_resultado_territorial":
+        return OFFICIAL if plan.metric == "total_validos" else CALCULATION
+    if plan.tool == "consultar_eleitorado":
+        return CALCULATION if plan.metric == "percentual" else OFFICIAL
+    if plan.tool == "consultar_horarios":
+        return OFFICIAL if plan.metric in {"votos_apos_17h", "ultimo_voto", "faixas"} else CALCULATION
+    return CALCULATION
 
 
 @dataclass
@@ -76,8 +103,26 @@ def _version(data, key):
     return f"geração {dates} · sha256 {source.get('sha256', '')[:12]}"
 
 
+def votes_provenance(data, period):
+    """Fonte dos votos de um período: arquivo consolidado do TSE ou portal oficial de divulgação."""
+    for code, report in data.manifest["sources"].get("divulgacao", {}).get("elections", {}).items():
+        if period and (report["ano"], report["turno"]) == tuple(period) and "equivalente_ao_consolidado" not in report:
+            return (f"votos_divulgacao.parquet · TSE resultados.tse.jus.br, eleição {code} (divulgação oficial, sem exterior)",
+                    f"geração {report['geracao_na_origem']} · sha256 {report['sha256_conjunto'][:12]}")
+    return VOTES_SOURCE, _version(data, "votes")
+
+
+TIMING_SOURCE = "horarios_secoes.parquet · logs oficiais das urnas (TSE), via urnas-tardias e coleta própria"
+
+
 def _trace(engine, tool, plan, table, version_key, metric, denominator, records, result):
-    return {"ferramenta": tool, "fonte": table, "versao": _version(engine.data, version_key), "ano": plan.period[0] if plan.period else None,
+    version = _version(engine.data, version_key)
+    if table == VOTES_SOURCE:
+        table, version = votes_provenance(engine.data, plan.period)
+    if version_key == "timing":
+        timing = engine.data.manifest["sources"].get("timing", {})
+        version = f"urnas-tardias {timing.get('urnas_tardias', {}).get('commit', '')[:7]} · sha256 {timing.get('urnas_tardias', {}).get('sha256', '')[:12]}"
+    return {"ferramenta": tool, "fonte": table, "versao": version, "ano": plan.period[0] if plan.period else None,
             "turno": plan.period[1] if plan.period else None, "filtros": _filters(plan), "metrica": metric, "denominador": denominator,
             "registros": records, "resultado": result, "validacao": "pendente"}
 
@@ -124,7 +169,15 @@ def validate(engine, plan):
             raise QueryError("categoria_invalida", dimension=name)
     if plan.dimension and plan.dimension not in DIMENSIONS:
         raise QueryError("categoria_invalida", dimension=plan.dimension)
-    if plan.tool in {"consultar_eleitorado", "consultar_distribuicao_demografica"} or plan.metric in {"eleitores", "percentual_eleitores"}:
+    if plan.tool == "simular_distribuicao_demografica":
+        if not 1 <= len(plan.dimensions) <= 2 or any(d not in DIMENSIONS for d in plan.dimensions) or len(set(plan.dimensions)) != len(plan.dimensions):
+            raise QueryError("simulacao_dimensao_invalida")
+        if not 1 <= len(plan.candidates) <= 2:
+            raise QueryError("simulacao_candidatura_invalida")
+        for name, chosen in plan.factors.items():
+            if name not in plan.dimensions or any(v not in engine.data.categories[name] or not 0 <= float(f) <= 10 for v, f in chosen.items()):
+                raise QueryError("simulacao_fator_invalido")
+    if plan.tool in {"consultar_eleitorado", "consultar_distribuicao_demografica", "simular_distribuicao_demografica"} or plan.metric in {"eleitores", "percentual_eleitores"}:
         if plan.period and plan.period[0] not in engine.profile_years:
             raise QueryError("cadastro_indisponivel", year=plan.period[0])
         for territory in plan.territories + ((plan.scope,) if plan.scope else ()):
@@ -312,6 +365,123 @@ def consultar_candidaturas(engine, plan):
     return {"rows": table, "total": total}, trace
 
 
+def simular_distribuicao_demografica(engine, plan):
+    territory = plan.territories[0]
+    runs, records = [], 0
+    reference = engine.result(plan.period, territory)
+    status = verify_result(engine.data, reference, territory, plan.period)
+    for candidate in plan.candidates:
+        simulation = engine.simulate(plan.period, territory, candidate, plan.dimensions, plan.factors)
+        official = int(reference["rows"].loc[reference["rows"].NM_URNA_CANDIDATO.eq(candidate), "VOTOS"].sum())
+        verify_simulation(simulation, official, bool(plan.factors))
+        records += simulation["records"]
+        runs.append({"candidate": candidate, **simulation})
+    votes_table, votes_version = votes_provenance(engine.data, plan.period)
+    trace = _trace(engine, "simular_distribuicao_demografica", plan, votes_table, "votes", "simulacao_" + "_x_".join(plan.dimensions),
+                   "eleitores cadastrados do recorte territorial (composição completa do eleitorado)", records,
+                   {r["candidate"]: {"votos_oficiais": r["votes"], "votos_simulados": {" / ".join(map(str, row[list(plan.dimensions)])): int(row.VOTOS_SIMULADOS)
+                                                                                       for _, row in r["rows"].iterrows()}} for r in runs})
+    trace.update(validacao=status, formula=SIMULATION_FORMULA, hipotese=SIMULATION_HYPOTHESIS, aviso=SIMULATION_WARNING,
+                 fontes={"votos_oficiais": f"{votes_table} · {votes_version}", "composicao": f"{PROFILE_SOURCE} · {_version(engine.data, 'profile')}"},
+                 cenario="ponderado" if plan.factors else "proporcional", fatores={k: dict(v) for k, v in plan.factors.items()})
+    return {"runs": runs, "territory": territory, "dimensions": plan.dimensions, "factors": plan.factors}, trace
+
+
+def verify_simulation(simulation, official, weighted):
+    rows = simulation["rows"]
+    check(simulation["votes"] == official, "votos de referência da simulação divergem do resultado oficial")
+    check(int(rows.VOTOS_SIMULADOS.sum()) == official, "votos simulados não somam o total oficial da candidatura")
+    check(abs(rows.VOTOS_EXATOS.sum() - official) < 1e-6, "soma exata da simulação difere do total oficial")
+    check(abs(rows.PARTICIPACAO.sum() - 1) < 1e-9 and (rows.VOTOS_SIMULADOS >= 0).all(), "composição de referência inválida")
+    check((rows.VOTOS_SIMULADOS - rows.VOTOS_EXATOS).abs().max() < 1 + 1e-9, "arredondamento fora do método dos maiores restos")
+    if not weighted and official:
+        check(((rows.VOTOS_EXATOS / official) - rows.PARTICIPACAO).abs().max() < 1e-9, "cenário proporcional não reproduz a composição do eleitorado")
+
+
+def consultar_horarios(engine, plan):
+    territory = plan.scope or plan.territories[0]
+    sections = engine.timing_sections(plan.period, territory)
+    if sections is None or sections.empty:
+        raise QueryError("horarios_indisponiveis", period=plan.period, territory=territory)
+    covered, missing = engine.timing_coverage(plan.period, territory)
+    if missing:  # um total parcial seria lido como total do recorte
+        raise QueryError("horarios_cobertura_parcial", period=plan.period, territory=territory, missing=missing,
+                         covered=[engine.kb.city_by_code[c] for c in covered if c in engine.kb.city_by_code])
+    status = verify_timing(engine, sections, plan.period, territory)
+    hours, covered, total_sections = engine.timing_hours(plan.period, territory)
+    if plan.metric in {"faixas", "votos_apos_hora"} and (hours is None or covered < total_sections):
+        available = engine.data.timing_hours
+        codes = sorted(set(available.loc[available.ANO_ELEICAO.eq(plan.period[0]) & available.NR_TURNO.eq(plan.period[1]), "CD_MUNICIPIO"])) if available is not None else []
+        raise QueryError("faixas_indisponiveis", territory=territory, covered=[engine.kb.city_by_code[c] for c in codes if c in engine.kb.city_by_code], period=plan.period)
+    timed = sections[sections.ULTIMO_VOTO.ne("")]
+    last = timed.sort_values("ULTIMO_VOTO").iloc[-1] if len(timed) else None
+    latest = sections.sort_values("ENCERRAMENTO").iloc[-1]
+    summary = {"urnas": len(sections), "estendidas": int(sections.ESTENDIDA.sum()), "votos_log": int(sections.VOTOS_LOG.sum()),
+               "votos_apos_17h": int(sections.VOTOS_APOS_17H.sum()), "votos_apos_17h20": int(sections.VOTOS_APOS_17H20.sum()),
+               "votos_apos_17h_estendidas": int(sections.loc[sections.ESTENDIDA, "VOTOS_APOS_17H"].sum()),
+               "urnas_com_voto_apos_17h": int(sections.VOTOS_APOS_17H.gt(0).sum()), "ultimo_voto": last.ULTIMO_VOTO if last is not None else None,
+               "ultimo_voto_secao": (last.CD_MUNICIPIO, last.ZONA, last.SECAO) if last is not None else None,
+               "ultimo_encerramento": latest.ENCERRAMENTO, "ultimo_encerramento_secao": (latest.CD_MUNICIPIO, latest.ZONA, latest.SECAO),
+               "abertura_mediana": sorted(sections.ABERTURA)[len(sections) // 2], "encerramento_mediano": sorted(sections.ENCERRAMENTO)[len(sections) // 2],
+               "esperadas": engine.expected_sections(plan.period, territory), "fontes": sorted(sections.FONTE.unique())}
+    summary["pct_estendidas"] = 100 * summary["estendidas"] / summary["urnas"]
+    data = {"summary": summary, "territory": territory, "hours": hours, "hours_covered": covered, "hours_total": total_sections, "sections": sections}
+    if plan.metric == "votos_apos_hora":
+        data["after_hour"] = int(hours.loc[hours.HORA.ge(plan.hour or 0), "VOTOS"].sum())
+    if plan.metric == "ranking":
+        frame = engine.timing_ranking(plan.period, territory, plan.level)
+        key = "PCT_ESTENDIDAS" if plan.order == "pct" else "ESTENDIDAS"
+        data["ranking"] = frame.sort_values([key, "URNAS"], ascending=[False, False]).head(plan.limit or 5).reset_index(drop=True)
+    if plan.metric == "urnas_tardias":
+        data["late"] = sections.sort_values(["ENCERRAMENTO", "CD_MUNICIPIO", "ZONA", "SECAO"], ascending=[False, True, True, True]).head(plan.limit or 10)
+    trace = _trace(engine, "consultar_horarios", plan, TIMING_SOURCE, "timing", plan.metric or "resumo",
+                   "urnas com linha do tempo no recorte (horário de Brasília)", len(sections),
+                   {k: v for k, v in summary.items() if k not in {"fontes", "esperadas"}})
+    trace["validacao"] = status
+    trace["regra_estendida"] = "encerramento a partir de 17h45 (horário de Brasília)"
+    return data, trace
+
+
+def verify_timing(engine, sections, period, territory):
+    """Horários vêm dos logs; nenhuma tabela temporal tem coluna de candidatura."""
+    for frame in [engine.data.timing, engine.data.timing_hours]:
+        check(frame is None or not ({"NM_URNA_CANDIDATO", "NR_CANDIDATO", "SG_PARTIDO"} & set(frame.columns)), "tabela temporal com candidatura")
+    check(not sections.duplicated(["CD_MUNICIPIO", "ZONA", "SECAO"]).any(), "seção duplicada nos horários")
+    check(sections.ESTENDIDA.eq(sections.ENCERRAMENTO.ge("17:45:00")).all(), "classificação de urna estendida inconsistente")
+    check((sections.VOTOS_APOS_17H20 <= sections.VOTOS_APOS_17H).all() and (sections.VOTOS_APOS_17H <= sections.VOTOS_LOG).all(), "contagens de horário inconsistentes")
+    hours = engine.data.timing_hours
+    if hours is not None:
+        own = hours[hours.ANO_ELEICAO.eq(period[0]) & hours.NR_TURNO.eq(period[1])].groupby(["CD_MUNICIPIO", "ZONA", "SECAO"]).VOTOS.sum()
+        merged = sections.set_index(["CD_MUNICIPIO", "ZONA", "SECAO"]).VOTOS_LOG.to_frame().join(own.rename("POR_HORA"), how="inner")
+        check(merged.VOTOS_LOG.eq(merged.POR_HORA).all(), "faixas horárias não somam os votos computados da seção")
+    return "aprovada"
+
+
+def comparar_turnos(engine, plan):
+    territory = plan.territories[0]
+    year = plan.period[0]
+    frame, turns = engine.compare_turns(year, territory, plan.candidates)
+    statuses = [verify_result(engine.data, engine.result((year, t), territory), territory, (year, t)) for t in turns]
+    check(len(turns) >= 2, "comparação exige dois turnos")
+    finalists = set(frame.loc[frame.NR_TURNO.eq(max(turns)), "NM_URNA_CANDIDATO"])
+    chosen = list(plan.candidates) or sorted(finalists, key=lambda k: -int(frame[(frame.NR_TURNO == max(turns)) & (frame.NM_URNA_CANDIDATO == k)].VOTOS.iloc[0]))
+    rows = []
+    for candidate in chosen:
+        values = {t: frame[(frame.NR_TURNO == t) & (frame.NM_URNA_CANDIDATO == candidate)] for t in turns}
+        if any(v.empty for v in values.values()):
+            raise QueryError("candidato_fora_do_pleito", candidate=candidate, period=(year, next(t for t, v in values.items() if v.empty)))
+        first, second = values[min(turns)].iloc[0], values[max(turns)].iloc[0]
+        rows.append({"candidate": candidate, "votos_1": int(first.VOTOS), "pct_1": first.PERCENTUAL, "votos_2": int(second.VOTOS), "pct_2": second.PERCENTUAL,
+                     "dif_votos": int(second.VOTOS - first.VOTOS), "dif_pp": second.PERCENTUAL - first.PERCENTUAL})
+    totals = frame.groupby("NR_TURNO").TOTAL_VALIDOS.first().to_dict()
+    trace = _trace(engine, "comparar_turnos", plan, VOTES_SOURCE, "votes", "comparacao_entre_turnos",
+                   "votos válidos de cada turno no mesmo território (denominadores próprios)", len(frame),
+                   {r["candidate"]: {k: r[k] for k in ["votos_1", "votos_2", "dif_votos"]} for r in rows})
+    trace["fonte"] = " + ".join(dict.fromkeys(votes_provenance(engine.data, (year, t))[0] for t in turns))
+    trace["validacao"] = "aprovada" if all(s.startswith("aprovada") for s in statuses) else "falhou"
+    return {"rows": rows, "territory": territory, "turns": turns, "totals": totals, "year": year}, trace
+
+
 def contar_municipios(engine, plan):
     territory = plan.territories[0]
     codes = engine.codes(territory)
@@ -358,6 +528,19 @@ TOOLS = {spec.name: spec for spec in [
     ToolSpec("contar_municipios", "Quantidade de municípios distintos de um território na base.",
              {"territories": ("tuple[Territory]", True, "1 território do cadastro")}, "contagem e lacunas de DDD", "municipios.parquet",
              "somente leitura", contar_municipios),
+    ToolSpec("simular_distribuicao_demografica", "SIMULAÇÃO HIPOTÉTICA: distribui os votos oficiais de 1–2 candidaturas pela composição do eleitorado.",
+             {"period": ("(ano, turno)", True, "presente na base"), "candidates": ("tuple[str]", True, "1–2"), "territories": ("tuple[Territory]", True, "1 território do cadastro"),
+              "dimensions": ("tuple[str]", True, "1–2 de " + ", ".join(DIMENSIONS) + "; duas usam a distribuição conjunta oficial"),
+              "factors": ("dict[str, dict[str, float]]", False, "fatores hipotéticos 0–10 por categoria (cenário ponderado)")},
+             "votos simulados (inteiros por maiores restos), exatos, participação e pesos", f"{VOTES_SOURCE} + {PROFILE_SOURCE}",
+             "nunca é dado real: resultado sempre rotulado como SIMULAÇÃO HIPOTÉTICA", simular_distribuicao_demografica),
+    ToolSpec("consultar_horarios", "Linha do tempo das urnas: abertura, encerramento, último voto, votos após 17h, urnas estendidas, votos por hora.",
+             {"period": ("(ano, turno)", True, "turno com logs integrados"), "territories": ("tuple[Territory]", True, "1 território"),
+              "metric": ("str", False, "resumo | votos_apos_17h | estendidas | ultimo_voto | faixas | ranking | urnas_tardias"), "level": ("str", False, "uf | municipio")},
+             "resumo por urna e, quando coletado, votos por hora", TIMING_SOURCE, "não associa horários a candidaturas", consultar_horarios),
+    ToolSpec("comparar_turnos", "Votos e percentual das candidaturas em cada turno, no mesmo território.",
+             {"period": ("(ano, turno final)", True, "ano com dois turnos"), "territories": ("tuple[Territory]", True, "1"), "candidates": ("tuple[str]", False, "finalistas por padrão")},
+             "votos, percentuais e variações por candidatura", VOTES_SOURCE, "denominador próprio de cada turno", comparar_turnos),
 ]}
 
 
@@ -376,6 +559,7 @@ def execute(engine, plan):
         LOG.error("falha na consulta", extra={"ferramenta": plan.tool, "erro": type(exc).__name__})
         raise DataUnavailable(type(exc).__name__) from exc
     trace["duracao_ms"] = round(1000 * (time.perf_counter() - started), 1)
+    trace["natureza"] = nature(plan)
     # Monitoramento técnico: ferramenta, status e duração. Nunca o texto da conversa.
     LOG.info("consulta executada", extra={"ferramenta": plan.tool, "validacao": trace["validacao"], "duracao_ms": trace["duracao_ms"]})
     return ToolResult(plan.tool, data, trace)

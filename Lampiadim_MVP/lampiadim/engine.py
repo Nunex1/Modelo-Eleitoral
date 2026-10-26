@@ -1,11 +1,14 @@
 """Motor estatístico determinístico sobre as bases preparadas.
 
 Votos (resultado por candidatura e município) e cadastro (perfil do eleitorado)
-são conjuntos distintos: nenhuma função aqui cruza votos com categorias demográficas.
+são conjuntos distintos. A única função que combina os dois é ``simulate``, um
+cenário matemático HIPOTÉTICO, sempre identificado como tal; nenhuma outra cruza
+votos com categorias demográficas. Horários de urna nunca são ligados a candidaturas.
 """
 from __future__ import annotations
 
 from functools import lru_cache
+import math
 import re
 
 import pandas as pd
@@ -174,12 +177,141 @@ class Engine:
         frame["PERCENTUAL"] = (100 * frame.NUMERADOR / frame.DENOMINADOR).where(frame.DENOMINADOR.gt(0))
         return frame, int(mask.sum())
 
+    # ------------------------------------------------------------------ simulação hipotética
+    def composition(self, territory, dimensions):
+        """Composição oficial do eleitorado do território; com mais de uma dimensão, a distribuição conjunta do cadastro."""
+        columns = [DIMENSIONS[d] for d in dimensions]
+        mask = self._profile_mask(territory, {})
+        table = self.profile.loc[mask].groupby(columns, observed=True).QT_ELEITORES.sum().reset_index()
+        for column in columns:
+            table[column] = table[column].astype(str)
+        table = table[table.QT_ELEITORES.gt(0)].rename(columns={DIMENSIONS[d]: d for d in dimensions})
+        total = int(table.QT_ELEITORES.sum())
+        table["PARTICIPACAO"] = table.QT_ELEITORES / total if total else float("nan")
+        if len(dimensions) == 1 and dimensions[0] == "idade":
+            table = table.assign(_k=table.idade.map(lambda b: (self.age_bands.get(b) or (999,))[0])).sort_values("_k").drop(columns="_k")
+        else:
+            table = table.sort_values("QT_ELEITORES", ascending=False)
+        return table.reset_index(drop=True), total, int(mask.sum())
+
+    def simulate(self, period, territory, candidate, dimensions, factors=None):
+        """Distribuição HIPOTÉTICA dos votos oficiais de uma candidatura pela composição do eleitorado.
+
+        Proporcional: votos_g = V × eleitores_g ÷ eleitores. Ponderado: votos_g = V × (p_g × f_g) ÷ Σ(p × f).
+        Não mede o voto de nenhum grupo: supõe a mesma distribuição relativa em todos os grupos.
+        """
+        result = self.result(period, territory)
+        rows = result["rows"]
+        votes = int(rows.loc[rows.NM_URNA_CANDIDATO.eq(candidate), "VOTOS"].sum())
+        table, electorate, records = self.composition(territory, dimensions)
+        weight = table.PARTICIPACAO.astype(float).copy()
+        for name, chosen in (factors or {}).items():
+            if name in table:
+                weight = weight * table[name].map(lambda value: float(chosen.get(value, 1.0)))
+        if not electorate or weight.sum() <= 0:
+            raise ValueError("Sem eleitorado de referência ou pesos válidos para a simulação")
+        table["PESO"] = weight
+        table["VOTOS_EXATOS"] = votes * weight / weight.sum()
+        table["VOTOS_SIMULADOS"] = largest_remainder(table.VOTOS_EXATOS, votes)
+        return {"rows": table, "votes": votes, "electorate": electorate, "records": records + result["records"], "official_total": result["total"]}
+
+    # ------------------------------------------------------------------ horários das urnas
+    def timing_sections(self, period, territory):
+        timing = self.data.timing
+        if timing is None:
+            return None
+        year, turn = period
+        rows = timing[timing.ANO_ELEICAO.eq(year) & timing.NR_TURNO.eq(turn)]
+        if territory.kind not in {"brasil", "total"}:
+            rows = rows[rows.CD_MUNICIPIO.isin(self.codes(territory))]
+        return rows
+
+    def timing_coverage(self, period, territory):
+        """Municípios do recorte com registros de horário e quantos, com seções totalizadas, ficaram sem nenhum."""
+        timing = self.data.timing
+        year, turn = period
+        logged = set(timing.loc[timing.ANO_ELEICAO.eq(year) & timing.NR_TURNO.eq(turn), "CD_MUNICIPIO"]) if timing is not None else set()
+        codes = set(self.codes(territory))
+        totals = self.data.totalization
+        if totals is not None:
+            rows = totals[totals.ANO_ELEICAO.eq(year) & totals.NR_TURNO.eq(turn) & totals.SECOES_TOTALIZADAS.gt(0)]
+            if len(rows):
+                codes &= set(rows.CD_MUNICIPIO)
+        return sorted(codes & logged), len(codes - logged)
+
+    def totalization(self, period, territory):
+        """Totais oficiais da totalização (aptos, comparecimento, abstenção, brancos, nulos), sem exterior."""
+        totals = self.data.totalization
+        if totals is None:
+            return None
+        year, turn = period
+        rows = totals[totals.ANO_ELEICAO.eq(year) & totals.NR_TURNO.eq(turn) & totals.SG_UF.ne("ZZ")]
+        if territory.kind not in {"brasil", "total"}:
+            rows = rows[rows.CD_MUNICIPIO.isin(self.codes(territory))]
+        if not len(rows):
+            return None
+        columns = ["SECOES", "SECOES_TOTALIZADAS", "ELEITORADO_APTO", "COMPARECIMENTO", "ABSTENCAO", "VOTOS_VALIDOS", "VOTOS_BRANCOS", "VOTOS_NULOS"]
+        return {name: int(rows[name].sum()) for name in columns} | {"final": bool(rows.TOTALIZACAO_FINAL.all())}
+
+    def expected_sections(self, period, territory):
+        """Seções totalizadas pela divulgação do TSE no território (denominador de cobertura)."""
+        totals = self.totalization(period, territory)
+        return {"secoes": totals["SECOES_TOTALIZADAS"], "comparecimento": totals["COMPARECIMENTO"]} if totals else None
+
+    def timing_hours(self, period, territory):
+        """Votos computados por hora de Brasília, somente se todas as seções do recorte têm a linha do tempo completa."""
+        hours = self.data.timing_hours
+        sections = self.timing_sections(period, territory)
+        if hours is None or sections is None or sections.empty:
+            return None, 0, 0 if sections is None else len(sections)
+        year, turn = period
+        rows = hours[hours.ANO_ELEICAO.eq(year) & hours.NR_TURNO.eq(turn)]
+        if territory.kind not in {"brasil", "total"}:
+            rows = rows[rows.CD_MUNICIPIO.isin(self.codes(territory))]
+        covered = rows[["CD_MUNICIPIO", "ZONA", "SECAO"]].drop_duplicates()
+        if not len(covered):
+            return None, 0, len(sections)
+        table = rows.groupby("HORA", as_index=False).VOTOS.sum().sort_values("HORA")
+        return table, len(covered), len(sections)
+
+    def timing_ranking(self, period, scope, level):
+        sections = self.timing_sections(period, scope)
+        key = ["SG_UF"] if level == "uf" else ["SG_UF", "CD_MUNICIPIO"]
+        frame = sections.assign(COM_VOTO_APOS_17H=sections.VOTOS_APOS_17H.gt(0)).groupby(key, as_index=False).agg(
+            URNAS=("SECAO", "size"), ESTENDIDAS=("ESTENDIDA", "sum"), VOTOS_APOS_17H=("VOTOS_APOS_17H", "sum"), VOTOS_LOG=("VOTOS_LOG", "sum"),
+            ULTIMO_ENCERRAMENTO=("ENCERRAMENTO", "max"))
+        frame["PCT_ESTENDIDAS"] = 100 * frame.ESTENDIDAS / frame.URNAS
+        return frame
+
+    # ------------------------------------------------------------------ comparação entre turnos
+    def compare_turns(self, year, territory, candidates=()):
+        turns = [t for (y, t) in self.kb.periods if y == year]
+        rows = []
+        for turn in turns:
+            result = self.result((year, turn), territory)
+            for r in result["rows"].itertuples():
+                if not candidates or r.NM_URNA_CANDIDATO in candidates:
+                    rows.append({"NR_TURNO": turn, "NM_URNA_CANDIDATO": r.NM_URNA_CANDIDATO, "VOTOS": int(r.VOTOS), "PERCENTUAL": r.PERCENTUAL,
+                                 "TOTAL_VALIDOS": result["total"]})
+        return pd.DataFrame(rows), turns
+
     def candidates_table(self, period):
         year, turn = period
         info = self.info[self.info.ANO_ELEICAO.eq(year) & self.info.NR_TURNO.eq(turn)].copy()
         total = int(info.VOTOS_BRASIL.sum())
         info["PERCENTUAL"] = 100 * info.VOTOS_BRASIL / total if total else float("nan")
         return info.sort_values(["VOTOS_BRASIL", "NM_URNA_CANDIDATO"], ascending=[False, True]).reset_index(drop=True), total
+
+
+def largest_remainder(exact, total):
+    """Inteiros que somam ``total`` preservando a proporção (método dos maiores restos)."""
+    exact = pd.Series(exact, dtype="float64")
+    floors = exact.map(math.floor).astype("int64")
+    missing = int(total - floors.sum())
+    if missing:
+        remainders = (exact - floors).sort_values(ascending=False, kind="mergesort")
+        floors.loc[remainders.index[:missing]] += 1
+    return floors
 
 
 def engine_for(data):

@@ -42,6 +42,11 @@ class Writer:
         self.allowed.add(text)
         return text + "%"
 
+    def dec(self, value, places=1):
+        text = fmt_dec(value, places)
+        self.allowed.add(text)
+        return text
+
     def pp(self, value, places=1):
         text = fmt_dec(value, places)
         self.allowed.add(text)
@@ -389,7 +394,118 @@ def render_municipalities(w, plan, data, frame):
     return Rendered(f"{subject} {'têm' if plural else 'tem'} {w.n(data['count'])} municípios na base.")
 
 
-RENDERERS = {"consultar_votos": render_votes, "consultar_resultado_territorial": render_result, "comparar_candidatos": render_comparison,
+SIMULATION_WARNING = "SIMULAÇÃO HIPOTÉTICA. NÃO REPRESENTA VOTOS REAIS POR PERFIL DEMOGRÁFICO."
+DIMENSION_SIMULATION = {"sexo": "sexo", "identidade": "identidade de gênero", "idade": "faixa etária", "escolaridade": "escolaridade"}
+
+
+def category_label(value):
+    text = str(value)
+    return text if any(ch.isdigit() for ch in text) or not text.isupper() else text.capitalize()
+
+
+def simulation_table(run, dimensions):
+    """Tabela da simulação: cada linha leva a natureza SIMULAÇÃO HIPOTÉTICA, inclusive na exportação."""
+    rows = run["rows"]
+    label = rows[list(dimensions)].astype(str).map(category_label).agg(" · ".join, axis=1)
+    return pd.DataFrame({"Natureza": "SIMULAÇÃO HIPOTÉTICA", "Categoria": label, "Eleitores no cadastro": rows.QT_ELEITORES,
+                         "% do eleitorado": 100 * rows.PARTICIPACAO, "Votos simulados": rows.VOTOS_SIMULADOS, "Votos simulados (exatos)": rows.VOTOS_EXATOS.round(4),
+                         "Aviso": SIMULATION_WARNING})
+
+
+def render_simulation(w, plan, data, frame):
+    territory, dimensions = data["territory"], data["dimensions"]
+    period = w.period(plan.period)
+    lines = [f"**{SIMULATION_WARNING}**"]
+    tables = []
+    scenario = "ponderado pelos fatores hipotéticos escolhidos" if data["factors"] else "proporcional"
+    factors = "; ".join(f"{category_label(cat)} × {w.dec(value, 2 if value * 10 % 1 else 1)}" for dim in data["factors"].values() for cat, value in dim.items())
+    for run in data["runs"]:
+        rows = run["rows"]
+        name = w.cand(run["candidate"])
+        head = (f"Cenário {scenario}{' (' + factors + ')' if factors else ''}: os {w.n(run['votes'])} votos oficiais de {name} {w.place(territory)} {period}, "
+                f"distribuídos conforme o eleitorado cadastrado por {' e '.join(DIMENSION_SIMULATION[d] for d in dimensions)}")
+        if len(rows) <= 4 and len(dimensions) == 1:
+            share_places = places_for(list(100 * rows.PARTICIPACAO))
+            parts = [f"{w.lit(category_label(r[dimensions[0]]))}: {w.n(r.VOTOS_SIMULADOS)} votos simulados ({w.pct(100 * r.PARTICIPACAO, share_places)} do eleitorado)" for _, r in rows.iterrows()]
+            lines.append(head + " — " + "; ".join(parts) + ".")
+        else:
+            lines.append(head + ". Veja a tabela.")
+        tables.append((f"{SIMULATION_WARNING} · {name}", simulation_table(run, dimensions)))
+    lines.append("Hipótese: a mesma distribuição relativa de votos em todos os grupos" + (" alterada pelos fatores escolhidos" if data["factors"] else "")
+                 + ". Não mede preferência, comparecimento nem abstenção; o voto é secreto.")
+    return Rendered("\n\n".join(lines), tables)
+
+
+def hour_label(hour):
+    return f"{int(hour):02d}h–{int(hour) + 1:02d}h"
+
+
+def render_timing(w, plan, data, frame):
+    s, territory = data["summary"], data["territory"]
+    place, period = w.place(territory), w.period(plan.period)
+    caveat = " Os logs registram o horário em que o voto foi computado, não a candidatura escolhida."
+    metric = plan.metric or "resumo"
+    h17, h1745 = w.lit("17h"), w.lit("17h45")  # parâmetros fixos da metodologia
+    if metric == "votos_apos_17h":
+        return Rendered(f"{w.n(s['votos_apos_17h'])} votos foram computados depois das {h17} (horário de Brasília) {place} {period}, em "
+                        f"{w.n(s['urnas_com_voto_apos_17h'])} das {w.n(s['urnas'])} urnas com registro.{caveat}")
+    if metric == "votos_apos_hora":
+        return Rendered(f"{w.n(data['after_hour'])} votos foram computados a partir das {w.lit(plan.hour)}h (horário de Brasília) {place} {period}.{caveat}")
+    if metric == "estendidas":
+        return Rendered(f"{w.n(s['estendidas'])} das {w.n(s['urnas'])} urnas {place} ({w.pct(s['pct_estendidas'], places_for([s['pct_estendidas']]))}) "
+                        f"encerraram a partir de {h1745} (horário de Brasília) {period}; nelas, {w.n(s['votos_apos_17h_estendidas'])} votos foram computados depois das {h17}.")
+    if metric == "ultimo_voto":
+        mun, zone, section = s["ultimo_voto_secao"]
+        town = w.kb.city_by_code.get(mun)
+        where = f"seção {w.lit(int(section))} da zona {w.lit(int(zone))}" + (f" de {w.lit(town.label)}" if town and territory.kind != "municipio" else "")
+        return Rendered(f"O último voto computado {place} {period} foi às {w.lit(s['ultimo_voto'])} (horário de Brasília), na {where}.")
+    if metric == "faixas":
+        hours = data["hours"]
+        table = pd.DataFrame({"Faixa (horário de Brasília)": hours.HORA.map(hour_label), "Votos computados": hours.VOTOS,
+                              "% do dia": 100 * hours.VOTOS / hours.VOTOS.sum()})
+        peak = hours.sort_values(["VOTOS", "HORA"], ascending=[False, True]).iloc[0]
+        return Rendered(f"Votos computados por faixa horária {place} {period}, em {w.n(data['hours_covered'])} urnas: "
+                        f"o pico foi entre {w.lit(hour_label(peak.HORA))}, com {w.n(peak.VOTOS)} votos.{caveat}", [("Votos computados por faixa horária", table)])
+    if metric == "ranking":
+        ranking = data["ranking"]
+        unit = "estados" if plan.level == "uf" else "municípios"
+        name = (lambda r: w.lit(w.kb.states[r.SG_UF])) if plan.level == "uf" else (lambda r: w.lit(w.kb.city_by_code[r.CD_MUNICIPIO].label))
+        order = "proporção" if plan.order == "pct" else "quantidade"
+        lines = [f"{unit.capitalize()} com mais urnas encerradas a partir de {h1745} (por {order}) {place} {period}:"]
+        lines += [f"{i}. {name(r)} — {w.n(r.ESTENDIDAS)} de {w.n(r.URNAS)} urnas ({w.pct(r.PCT_ESTENDIDAS, places_for(list(ranking.PCT_ESTENDIDAS)))}), "
+                  f"{w.n(r.VOTOS_APOS_17H)} votos após {h17}" for i, r in enumerate(ranking.itertuples(), 1)]
+        w.lit(" ".join(str(i) for i in range(1, len(ranking) + 1)))
+        return Rendered("\n".join(lines))
+    if metric == "urnas_tardias":
+        late = data["late"]
+        table = pd.DataFrame({"Município": late.CD_MUNICIPIO.map(lambda c: w.kb.city_by_code[c].label if c in w.kb.city_by_code else c), "Zona": late.ZONA,
+                              "Seção": late.SECAO, "Encerramento (Brasília)": late.ENCERRAMENTO, "Último voto (Brasília)": late.ULTIMO_VOTO,
+                              "Votos após 17h": late.VOTOS_APOS_17H, "Votos computados": late.VOTOS_LOG})
+        return Rendered(f"Urnas com encerramento mais tardio {place} {period}:", [("Urnas com encerramento mais tardio", table)])
+    expected = s.get("esperadas")
+    coverage = f" ({w.n(s['urnas'])} de {w.n(expected['secoes'])} seções totalizadas)" if expected else ""
+    return Rendered(f"{place[0].upper() + place[1:]}, {period}: {w.n(s['urnas'])} urnas com registro de horário{coverage}; {w.n(s['estendidas'])} "
+                    f"({w.pct(s['pct_estendidas'], places_for([s['pct_estendidas']]))}) encerraram a partir de {h1745}; {w.n(s['votos_apos_17h'])} votos foram computados "
+                    f"depois das {h17}; o último voto foi às {w.lit(s['ultimo_voto'])} (horário de Brasília).{caveat}")
+
+
+def render_turns(w, plan, data, frame):
+    territory, turns = data["territory"], data["turns"]
+    place, year = w.place(territory), w.lit(data["year"])
+    first, last = w.lit(min(turns)), w.lit(max(turns))
+    lines = []
+    for r in data["rows"]:
+        places = places_for([r["pct_1"], r["pct_2"]])
+        sign = "+" if r["dif_votos"] >= 0 else "−"
+        pp_sign = "+" if r["dif_pp"] >= 0 else "−"
+        lines.append(f"{w.cand(r['candidate'])}: {w.n(r['votos_1'])} votos ({w.pct(r['pct_1'], places)}) no {first}º turno e {w.n(r['votos_2'])} "
+                     f"({w.pct(r['pct_2'], places)}) no {last}º turno — {sign}{w.n(abs(r['dif_votos']))} votos e {pp_sign}{w.pp(abs(r['dif_pp']), places_for([abs(r['dif_pp'])]))}.")
+    lines.append(f"Percentuais sobre os votos válidos de cada turno {place}, eleição de {year}.")
+    return Rendered("\n\n".join(lines))
+
+
+RENDERERS = {"consultar_votos": render_votes, "simular_distribuicao_demografica": render_simulation, "consultar_horarios": render_timing,
+             "comparar_turnos": render_turns, "consultar_resultado_territorial": render_result, "comparar_candidatos": render_comparison,
              "comparar_territorios": render_territories, "consultar_eleitorado": render_electorate,
              "consultar_distribuicao_demografica": render_distribution, "gerar_ranking_municipal": render_ranking,
              "contar_vitorias": render_wins, "consultar_candidaturas": render_candidacies, "contar_municipios": render_municipalities}
@@ -452,6 +568,12 @@ def render_reply(kb, reply):
         "consulta_excessiva": "A consulta pede mais itens do que o limite permitido. Reduza a quantidade de municípios ou candidaturas.",
         "limite_invalido": "O ranking aceita de 1 a 50 posições.",
         "dados_indisponiveis": "Não consegui consultar a base de dados agora. Nenhum número foi apresentado; tente novamente em instantes.",
+        "horario_por_candidatura": "Não é possível saber. Os registros das urnas marcam o horário em que cada voto foi computado, mas não a candidatura escolhida.",
+        "simulacao_sem_dimensao": "Simular por qual recorte do eleitorado: sexo, identidade de gênero, faixa etária ou escolaridade?",
+        "simulacao_dimensao_invalida": "A simulação usa uma ou duas dimensões do cadastro: sexo, identidade de gênero, faixa etária ou escolaridade.",
+        "simulacao_candidatura_invalida": "A simulação compara no máximo duas candidaturas por vez.",
+        "simulacao_fator_invalido": "Os fatores hipotéticos devem ser números entre 0 e 10, aplicados a categorias oficiais do cadastro.",
+        "turnos_insuficientes": "Essa eleição tem um único turno na base; não há o que comparar entre turnos.",
         "verificacao": "Não foi possível validar o resultado desta consulta; por isso nenhum número foi apresentado.",
     }
     if code in texts:
@@ -506,6 +628,23 @@ def render_reply(kb, reply):
     if code == "partido_incompativel":
         c = d["candidate"]
         return f"{c.display} concorreu pelo {c.party}, não pelo {d['party']}. Qual candidatura você quer consultar?"
+    if code == "horarios_indisponiveis":
+        territory, period = d.get("territory"), d.get("period") or ()
+        where = territory.phrase if territory else ""
+        return (f"Não há registros de horário das urnas integrados {where} no {w.lit(period[1])}º turno de {w.lit(period[0])}. "
+                "A base cobre o 2º turno em todo o Brasil e, no 1º turno, apenas os municípios coletados diretamente dos logs.") if period else \
+            "Não há registros de horário das urnas integrados para esse recorte."
+    if code == "horarios_cobertura_parcial":
+        territory, period = d["territory"], d["period"]
+        names = join(w.lit(t.label) for t in d.get("covered") or [])
+        return (f"No {w.lit(period[1])}º turno de {w.lit(period[0])}, os registros de horário das urnas foram coletados só para {names}, "
+                f"não para todo o recorte ({w.lit(territory.label)}). Um total só com esses municípios não representaria o recorte. "
+                "Pergunte por um município coberto.")
+    if code == "faixas_indisponiveis":
+        covered = d.get("covered") or []
+        names = join(w.lit(t.label) for t in covered) if covered else "nenhum município"
+        return ("A distribuição por faixa horária exige a linha do tempo completa de cada urna, coletada até agora para "
+                f"{names}. Para outros recortes há o resumo por urna: abertura, encerramento, último voto e votos após 17h.")
     if code == "parceiro_comparacao":
         return f"Comparar {w.cand(d['candidate'])} com qual candidatura?"
     return "Não consegui responder com segurança a partir dos dados disponíveis."

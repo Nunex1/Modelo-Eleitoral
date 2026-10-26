@@ -248,12 +248,119 @@
         "VOTOS_BRASIL",
         "VOTOS_EXTERIOR"
       ]
+    },
+    "divulgacao": {
+      "elections": {
+        "6257": {
+          "ano": 2026,
+          "turno": 1,
+          "fonte": "https://resultados.tse.jus.br/oficial/ele2026/6257/",
+          "sha256_conjunto": "85dc4aa007133e09fec47cd5e9272e7d48c6c0afc0f88e8e2b88661cba8ee3b6",
+          "arquivos": 5787,
+          "geracao_na_origem": "24/10/2026 20:13:18",
+          "baixado_em": "2026-10-26T15:45:46-0300",
+          "totais_nacionais_com_exterior": {
+            "13": 53879538,
+            "14": 2675887,
+            "16": 43103,
+            "21": 22693,
+            "22": 56104503,
+            "27": 40043,
+            "29": 15024,
+            "30": 326488,
+            "35": 16881,
+            "55": 2605148,
+            "70": 3448569,
+            "80": 122911
+          },
+          "reconciliado_ufs_e_brasil": true,
+          "equivalente_ao_consolidado": {
+            "linhas_comparadas": 66852,
+            "divergencias": 0
+          }
+        },
+        "6258": {
+          "ano": 2026,
+          "turno": 2,
+          "fonte": "https://resultados.tse.jus.br/oficial/ele2026/6258/",
+          "sha256_conjunto": "3e83dedabf851619d196f00d9e4802d9141400feaefaf3963b015b8b1adcfb9e",
+          "arquivos": 5787,
+          "geracao_na_origem": "25/10/2026 23:27:44",
+          "baixado_em": "2026-10-26T15:25:38-0300",
+          "totais_nacionais_com_exterior": {
+            "13": 64256232,
+            "22": 59826041
+          },
+          "reconciliado_ufs_e_brasil": true
+        }
+      },
+      "rows_new_periods": 11142,
+      "totalization_rows": 11514
+    },
+    "timing": {
+      "urnas_tardias": {
+        "repositorio": "https://github.com/apolinario/urnas-tardias",
+        "commit": "5a41bc1d3542cc5df4f1a291eb516e475051513d",
+        "arquivo": "secoes.csv",
+        "sha256": "2c9cbebfec648936d502d13e180118d6cd3fe27679238cbae5bf947f446f52c4",
+        "secoes_brasil": 497882,
+        "turno": 2,
+        "licenca": "não declarada no repositório; usado como dado derivado com atribuição"
+      },
+      "coleta_propria": {
+        "fonte": "https://resultados.tse.jus.br/oficial/ele2026/arquivo-urna/",
+        "script": "scripts/coletar_logs_urna.py",
+        "municipios_cobertos": {
+          "1": [
+            "61310",
+            "62910"
+          ],
+          "2": [
+            "61310",
+            "62910"
+          ]
+        },
+        "secoes": 6245
+      },
+      "validacao_cruzada": {
+        "secoes_comparadas": 3197,
+        "divergentes": 0,
+        "exemplos": []
+      },
+      "reconciliacao_comparecimento": {
+        "1": {
+          "municipios": 2,
+          "municipios_iguais": 0,
+          "municipios_com_mais_votos_no_log": 0,
+          "votos_nos_logs": 809878,
+          "comparecimento_oficial": 810838,
+          "diferenca": -960,
+          "secoes_sem_log": 0,
+          "explicacao": "o log considerado é o do último pacote de cada seção; votos registrados em urna substituída ou em seção sem log não aparecem"
+        },
+        "2": {
+          "municipios": 5571,
+          "municipios_iguais": 4804,
+          "municipios_com_mais_votos_no_log": 0,
+          "votos_nos_logs": 127696482,
+          "comparecimento_oficial": 127854631,
+          "diferenca": -158149,
+          "secoes_sem_log": 15,
+          "explicacao": "o log considerado é o do último pacote de cada seção; votos registrados em urna substituída ou em seção sem log não aparecem"
+        }
+      },
+      "regra_estendida": "encerramento a partir de 17h45 (horário de Brasília)",
+      "fuso": "moda de (abertura local − 8h) por município"
     }
   },
   "outputs": {
     "municipios.parquet": "4d6b61f10e896a8aa8f5072932319a0da6ed66803f8cf7af3862c9227e96dd43",
     "perfil.parquet": "5c0503522ec68da37f26711f366822c3f45610feeb929ca01f664710ad2fdd1c",
     "votos.parquet": "65e7945a2228dba50f159fa908e5c47ee84aed3ddb72f862524bda7b3125e9c8",
-    "candidatos.parquet": "9a045364b5a0f4edc61fd4a686623ac7adb1f5a09a3c448ddb77aedd341cf8d1"
+    "candidatos.parquet": "0dc591c8fb178e2e9e24283d21b80412fee91429bce6fc632be0b73bd29d17ad",
+    "totalizacao.parquet": "533ca9df7dfbc93b7a645ac55e3c1f44574553ccfbf0e277bd38d753f087572f",
+    "votos_divulgacao.parquet": "990649e4b64f6cea956ecef026f979194dae23816976f7936ff1f7e7cce1da49",
+    "horarios_faixas.parquet": "810e3252a05ffbadd1f1a247de2f63e001ca9155eda9fd4052203e16d369e4d7",
+    "horarios_secoes.parquet": "97fe88e3978e974ff32b455985e3b4455da1a6c27eeefdaf984651bb496a3a0b"
   }
 }

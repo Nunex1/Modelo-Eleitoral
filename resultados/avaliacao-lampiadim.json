@@ -1,44 +1,44 @@
 {
-  "casos": 27,
+  "casos": 36,
   "resumo": {
     "intencao": {
-      "acertos": 16,
-      "total": 16,
+      "acertos": 22,
+      "total": 22,
       "taxa": 100.0
     },
     "entidades": {
-      "acertos": 14,
-      "total": 14,
+      "acertos": 20,
+      "total": 20,
       "taxa": 100.0
     },
     "consulta": {
-      "acertos": 15,
-      "total": 15,
-      "taxa": 100.0
-    },
-    "exatidao_numerica": {
-      "acertos": 15,
-      "total": 15,
-      "taxa": 100.0
-    },
-    "contexto": {
-      "acertos": 5,
-      "total": 5,
-      "taxa": 100.0
-    },
-    "disciplina": {
       "acertos": 21,
       "total": 21,
       "taxa": 100.0
     },
+    "exatidao_numerica": {
+      "acertos": 21,
+      "total": 21,
+      "taxa": 100.0
+    },
+    "contexto": {
+      "acertos": 6,
+      "total": 6,
+      "taxa": 100.0
+    },
+    "disciplina": {
+      "acertos": 28,
+      "total": 28,
+      "taxa": 100.0
+    },
     "controle_alucinacao": {
-      "acertos": 27,
-      "total": 27,
+      "acertos": 36,
+      "total": 36,
       "taxa": 100.0
     },
     "ambiguidade": {
-      "acertos": 4,
-      "total": 4,
+      "acertos": 5,
+      "total": 5,
       "taxa": 100.0
     },
     "resiliencia": {
@@ -47,9 +47,9 @@
       "taxa": 100.0
     },
     "desempenho_ms": {
-      "mediana": 10.1,
-      "p95": 121.5,
-      "maximo": 220.5
+      "mediana": 16.9,
+      "p95": 134.2,
+      "maximo": 932.4
     }
   },
   "detalhes": [
@@ -159,13 +159,13 @@
       "id": "candidato-inexistente",
       "ok": true,
       "falhas": [],
-      "resposta": "Não há candidatura de “Ciro Gomes” na eleição presidencial desta base (1º turno de 2026)."
+      "resposta": "Não há candidatura de “Ciro Gomes” na eleição presidencial desta base (1º e 2º turnos de 2026)."
     },
     {
-      "id": "turno-indisponivel",
+      "id": "ano-indisponivel",
       "ok": true,
       "falhas": [],
-      "resposta": "Os dados do 2º turno de 2026 ainda não estão integrados à base; há apenas o 1º turno de 2026. Quer consultar o 1º turno de 2026?"
+      "resposta": "A base contém apenas os 1º e 2º turnos de 2026. Quer consultar o 2º turno de 2026?"
     },
     {
       "id": "metrica-indisponivel",
@@ -214,6 +214,60 @@
       "ok": true,
       "falhas": [],
       "resposta": "Lula recebeu 241.972 votos em Campinas/SP no 1º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "horario-por-candidatura",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não é possível saber. Os registros das urnas marcam o horário em que cada voto foi computado, mas não a candidatura escolhida."
+    },
+    {
+      "id": "voto-real-nao-e-simulacao",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Não é possível determinar. Os dados públicos de votação não identificam o sexo dos eleitores que votaram em cada candidato."
+    },
+    {
+      "id": "simulacao-sem-recorte",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Simular por qual recorte do eleitorado: sexo, identidade de gênero, faixa etária ou escolaridade?"
+    },
+    {
+      "id": "segundo-turno-votos",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Lula recebeu 303.914 votos em Campinas/SP no 2º turno da eleição presidencial de 2026."
+    },
+    {
+      "id": "comparar-turnos",
+      "ok": true,
+      "falhas": [],
+      "resposta": "Flavio Bolsonaro: 329.733 votos (52,1%) no 1º turno e 360.222 (54,2%) no 2º turno — +30.489 votos e +2,2 pontos percentuais.\n\nLula: 241.972 votos (38,2%) no 1º turno e 303.914 (45,8%) no 2º turno — +61.942 votos e +7,5 pontos percentuais.\n\nPercentuais sobre os votos válidos de cada turno em Campinas/SP, eleição de 2026."
+    },
+    {
+      "id": "simulacao-sexo",
+      "ok": true,
+      "falhas": [],
+      "resposta": "**SIMULAÇÃO HIPOTÉTICA. NÃO REPRESENTA VOTOS REAIS POR PERFIL DEMOGRÁFICO.**\n\nCenário proporcional: os 48.130 votos oficiais de Lula em Americana/SP no 2º turno de 2026, distribuídos conforme o eleitorado cadastrado por sexo — Feminino: 25.522 votos simulados (53,03% do eleitorado); Masculino: 22.591 votos simulados (46,94% do eleitorado); Não informado: 17 votos simulados (0,03% do eleitorado).\n\nHipótese: a mesma distribuição relativa de votos em todos os grupos. Não mede preferência, comparecimento nem abstenção; o voto é secreto."
+    },
+    {
+      "id": "simulacao-mesma-para-outra-candidatura",
+      "ok": true,
+      "falhas": [],
+      "resposta": "**SIMULAÇÃO HIPOTÉTICA. NÃO REPRESENTA VOTOS REAIS POR PERFIL DEMOGRÁFICO.**\n\nCenário proporcional: os 93.443 votos oficiais de Flavio Bolsonaro em Americana/SP no 2º turno de 2026, distribuídos conforme o eleitorado cadastrado por sexo — Feminino: 49.550 votos simulados (53,03% do eleitorado); Masculino: 43.861 votos simulados (46,94% do eleitorado); Não informado: 32 votos simulados (0,03% do eleitorado).\n\nHipótese: a mesma distribuição relativa de votos em todos os grupos. Não mede preferência, comparecimento nem abstenção; o voto é secreto."
+    },
+    {
+      "id": "horarios-votos-apos-17h",
+      "ok": true,
+      "falhas": [],
+      "resposta": "167 votos foram computados depois das 17h (horário de Brasília) em Campinas/SP no 2º turno de 2026, em 153 das 2.531 urnas com registro. Os logs registram o horário em que o voto foi computado, não a candidatura escolhida."
+    },
+    {
+      "id": "horarios-urnas-estendidas",
+      "ok": true,
+      "falhas": [],
+      "resposta": "12 das 2.531 urnas em Campinas/SP (0,5%) encerraram a partir de 17h45 (horário de Brasília) no 2º turno de 2026; nelas, 5 votos foram computados depois das 17h."
     }
   ]
 }

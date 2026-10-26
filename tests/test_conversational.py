@@ -9,6 +9,7 @@ import pytest
 
 from conftest import br, pct
 from lampiadim.assistant import ConversationState, answer_question
+from lampiadim.data import Filters
 from lampiadim.engine import Engine
 
 AMERICANA, CAMPINAS, SAO_PAULO = "61310", "62910", "71072"
@@ -21,8 +22,8 @@ def local_mode(monkeypatch):
 
 
 def ask(data, questions, state=None):
-    """Executa uma conversa e devolve as respostas na ordem."""
-    state = state or ConversationState()
+    """Executa uma conversa e devolve as respostas na ordem (contexto inicial = filtros da interface, 1º turno)."""
+    state = state or ConversationState.from_filters(Filters())
     answers = []
     for question in questions:
         answer = answer_question(question, data, state)
@@ -71,9 +72,10 @@ def test_04_05_context_candidate_then_place(data, ref):
 # 6 ---------------------------------------------------------------- mudança de turno
 def test_06_turn_change_preserves_other_filters(data, ref):
     first, second, third = ask(data, ["Quantos votos Lula teve em Campinas no primeiro turno?", "E no segundo?", "E no primeiro?"])
-    assert "2º turno de 2026 ainda não estão integrados" in second.text and no_stats(second.text.split(";")[0])
-    assert second.state.candidates == ("LULA",) and second.state.territories[0].code == CAMPINAS
-    assert br(ref.candidate_votes("LULA", CAMPINAS)) in third.text
+    assert br(ref.candidate_votes("LULA", CAMPINAS)) in first.text and "1º turno" in first.text
+    assert br(ref.second_round("LULA", CAMPINAS)) in second.text and "2º turno" in second.text
+    assert second.state.candidates == ("LULA",) and second.state.territories[0].code == CAMPINAS and second.state.period == (2026, 2)
+    assert br(ref.candidate_votes("LULA", CAMPINAS)) in third.text and third.trace[0]["turno"] == 1
 
 
 # 7 ---------------------------------------------------------------- comparação no mesmo universo
@@ -149,7 +151,7 @@ def test_15b_similar_candidate_requires_confirmation(data, ref):
 
 # 16 ---------------------------------------------------------------- ano ambíguo (base com duas eleições)
 def test_16_ambiguous_year_requires_clarification(synthetic):
-    year, turn, value = ask(synthetic, ["Quantos votos Lula teve em Alfaville?", "2022", "no segundo"])
+    year, turn, value = ask(synthetic, ["Quantos votos Lula teve em Alfaville?", "2022", "no segundo"], ConversationState())
     assert year.clarification and "2022" in year.text and "2026" in year.text and not year.trace
     assert turn.clarification and "turno" in turn.text
     assert "400 votos" in value.text and "2º turno" in value.text and "2022" in value.text
@@ -223,7 +225,9 @@ def test_23_long_context_with_selective_updates(data, ref):
     assert br(lula_c) in a[0].text and br(flavio_c) in a[1].text and br(flavio_a) in a[2].text
     assert "Flavio Bolsonaro teve mais votos que Lula em Americana/SP" in a[3].text
     assert "pontos percentuais" in a[4].text and br(flavio_a - lula_a) in a[5].text
-    assert "integrados" in a[6].text and br(flavio_a - lula_a) in a[7].text and "1º turno" in a[7].text
+    flavio_a2, lula_a2 = ref.second_round("FLAVIO BOLSONARO", AMERICANA), ref.second_round("LULA", AMERICANA)
+    assert br(flavio_a2 - lula_a2) in a[6].text and "2º turno" in a[6].text
+    assert br(flavio_a - lula_a) in a[7].text and "1º turno" in a[7].text
     assert br(flavio_a) in a[8].text and pct(ref.share("FLAVIO BOLSONARO", AMERICANA)) in a[9].text
     assert br(ref.electorate(AMERICANA)) in a[10].text
     assert all(x.state.territories[0].code == AMERICANA for x in a[2:])

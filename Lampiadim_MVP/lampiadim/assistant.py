@@ -24,7 +24,7 @@ from .interpreter import Interpreter, split_clauses
 from .llm import ModelInterpreter, provider_enabled
 from .planner import Planner, Reply
 from .responses import render, render_reply
-from .tools import QueryError, execute
+from .tools import CALCULATION, OFFICIAL, SIMULATION, QueryError, execute
 from .verification import VerificationError, verify_grounded_text
 
 LOG = logging.getLogger("lampiadim.assistente")
@@ -47,6 +47,15 @@ class Answer:
     clarification: bool = False
     state: ConversationState | None = None
     trace: list = field(default_factory=list)
+
+    @property
+    def nature(self):
+        """DADO OFICIAL, CÁLCULO ESTATÍSTICO ou SIMULAÇÃO HIPOTÉTICA (a mais hipotética entre as consultas)."""
+        kinds = [t.get("natureza") for t in self.trace if t.get("natureza")]
+        for kind in [SIMULATION, CALCULATION, OFFICIAL]:
+            if kind in kinds:
+                return kind
+        return ""
 
 
 def _components(engine):
@@ -75,7 +84,11 @@ def _filters(state, kb):
 
 
 def _sources(trace):
-    return [f"Fonte: {trace['fonte']} · {trace['versao']}",
+    if trace.get("natureza") == SIMULATION:
+        return [f"Natureza: {SIMULATION}. {trace['aviso']}", f"Votos oficiais: {trace['fontes']['votos_oficiais']}",
+                f"Composição demográfica: {trace['fontes']['composicao']}", f"Fórmula: {trace['formula']}", f"Hipótese e limites: {trace['hipotese']}",
+                f"Cenário: {trace['cenario']} · registros processados: {trace['registros']} · validação: {trace['validacao']}"]
+    return [f"Natureza: {trace.get('natureza', '')}", f"Fonte: {trace['fonte']} · {trace['versao']}",
             f"Métrica: {trace['metrica']} · denominador: {trace['denominador']}",
             "Filtros: " + (", ".join(f"{k}: {v}" for k, v in trace["filtros"].items()) or "nenhum") + (f" · ano {trace['ano']}" if trace.get("ano") else "") + (f", {trace['turno']}º turno" if trace.get("turno") else ""),
             f"Registros processados: {trace['registros']} · validação: {trace['validacao']}"]
@@ -110,6 +123,9 @@ def answer_question(question, data, context=None):
         else:
             try:
                 queue = model.frames(question, state)
+                # Simulação só existe a pedido explícito do usuário, detectado também localmente.
+                if any(f.intent == "simulacao" for f in queue) and not any(f.intent == "simulacao" for f in local):
+                    raise ValueError("simulação sem pedido explícito")
                 mode = "IA · consulta verificada"
                 # Ambiguidade geográfica detectada localmente prevalece sobre uma escolha do modelo.
                 guards = [f for f in local if f.intent == "problema" and f.reason in {"estado_ou_municipio", "municipio_homonimo"}]
