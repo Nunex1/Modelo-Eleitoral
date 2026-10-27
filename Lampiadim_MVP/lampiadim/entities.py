@@ -90,7 +90,7 @@ class Territory:
 
     @property
     def label(self):
-        return {"brasil": "Brasil (sem exterior)", "exterior": "Exterior", "total": "Brasil e exterior", "ddd": f"DDD {self.code}",
+        return {"brasil": "Brasil (sem exterior)", "exterior": "Exterior", "total": "Brasil e exterior", "ddd": f"DDD {self.code}" + (f" · {self.uf}" if self.uf else ""),
                 "regiao": f"Região {self.name}",
                 "uf": f"Estado {UF_PREPOSITION.get(self.code, 'de')} {self.name}" if self.code != "DF" else "Distrito Federal",
                 "municipio": f"{self.name}/{self.uf}"}[self.kind]
@@ -101,7 +101,7 @@ class Territory:
         if self.kind == "uf":
             return "no Distrito Federal" if self.code == "DF" else f"no estado {UF_PREPOSITION.get(self.code, 'de')} {self.name}"
         return {"brasil": "no Brasil (sem os votos do exterior)", "exterior": "no exterior", "total": "no Brasil e no exterior",
-                "ddd": f"nos municípios do DDD {self.code}", "regiao": f"na região {self.name}", "municipio": f"em {self.name}/{self.uf}"}[self.kind]
+                "ddd": f"nos municípios do {self.label}", "regiao": f"na região {self.name}", "municipio": f"em {self.name}/{self.uf}"}[self.kind]
 
     @property
     def subject(self):
@@ -109,7 +109,7 @@ class Territory:
         if self.kind == "uf":
             return ("O Distrito Federal" if self.code == "DF" else f"O estado {UF_PREPOSITION.get(self.code, 'de')} {self.name}"), False
         return {"brasil": ("O Brasil (sem o exterior)", False), "exterior": ("O exterior", False), "total": ("Brasil e exterior", True),
-                "ddd": (f"Os municípios do DDD {self.code}", True), "regiao": (f"A região {self.name}", False),
+                "ddd": (f"Os municípios do {self.label}", True), "regiao": (f"A região {self.name}", False),
                 "municipio": (f"{self.name}/{self.uf}", False)}[self.kind]
 
 

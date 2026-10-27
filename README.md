@@ -25,6 +25,8 @@ tal). A política descreve o funcionamento local e sinaliza dados do controlador
 que devem ser preenchidos antes de uma publicação.
 
 - [Segundo turno, horários das urnas e simulação demográfica](docs/SEGUNDO_TURNO_HORARIOS_SIMULACAO.md)
+- [Evolução dos votos, abstenção, brancos/nulos e laboratório de hipóteses](docs/EVOLUCAO_ABSTENCAO.md)
+- [Relatório de entrega e validação da evolução eleitoral](resultados/VALIDACAO-EVOLUCAO.md)
 - [Validação da expansão](resultados/VALIDACAO-EXPANSAO.md)
 - [Inteligência conversacional: arquitetura, ferramentas, testes e limites](docs/INTELIGENCIA_CONVERSACIONAL.md)
 - [Validação da inteligência conversacional](resultados/VALIDACAO-INTELIGENCIA.md)

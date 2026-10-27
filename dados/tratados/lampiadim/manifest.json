@@ -351,6 +351,11 @@
       },
       "regra_estendida": "encerramento a partir de 17h45 (horário de Brasília)",
       "fuso": "moda de (abertura local − 8h) por município"
+    },
+    "auditoria_totalizacao": {
+      "verificado_em": "2026-10-26T19:29:38.467258+00:00",
+      "linhas": 11514,
+      "referencias": "referencias_totalizacao.json"
     }
   },
   "outputs": {
@@ -361,6 +366,8 @@
     "totalizacao.parquet": "533ca9df7dfbc93b7a645ac55e3c1f44574553ccfbf0e277bd38d753f087572f",
     "votos_divulgacao.parquet": "990649e4b64f6cea956ecef026f979194dae23816976f7936ff1f7e7cce1da49",
     "horarios_faixas.parquet": "810e3252a05ffbadd1f1a247de2f63e001ca9155eda9fd4052203e16d369e4d7",
-    "horarios_secoes.parquet": "97fe88e3978e974ff32b455985e3b4455da1a6c27eeefdaf984651bb496a3a0b"
+    "horarios_secoes.parquet": "97fe88e3978e974ff32b455985e3b4455da1a6c27eeefdaf984651bb496a3a0b",
+    "totalizacao_detalhada.parquet": "2399f914280ccedaf1fd680d682ab8f93720472a0de0ea009b107bd79146e8e9",
+    "referencias_totalizacao.json": "12764e4c5e21c98358643457f7b2156219be6e33ca88212b01239d4da1ab68c5"
   }
 }
