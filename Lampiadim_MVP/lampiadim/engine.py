@@ -62,7 +62,10 @@ class Engine:
         if territory.kind == "regiao":
             return tuple(towns.loc[towns.SG_UF.isin(REGIONS[territory.code][1]), "CD_MUNICIPIO"])
         if territory.kind == "ddd":
-            return tuple(towns.loc[towns.DDD.eq(int(territory.code)).fillna(False), "CD_MUNICIPIO"])
+            mask = towns.DDD.eq(int(territory.code)).fillna(False)
+            if territory.uf:
+                mask &= towns.SG_UF.eq(territory.uf)
+            return tuple(towns.loc[mask, "CD_MUNICIPIO"])
         if territory.kind == "municipio":
             return tuple(towns.loc[towns.CD_MUNICIPIO.eq(territory.code), "CD_MUNICIPIO"])
         return ()
@@ -72,6 +75,8 @@ class Engine:
         if territory.kind != "ddd":
             return []
         ufs = set(self.towns.loc[self.towns.DDD.eq(int(territory.code)).fillna(False), "SG_UF"])
+        if territory.uf:
+            ufs &= {territory.uf}
         return [r for r in self.data.manifest["sources"]["geography"]["unavailable"] if r["SG_UF"] in ufs]
 
     # ------------------------------------------------------------------ votos

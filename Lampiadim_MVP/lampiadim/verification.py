@@ -34,7 +34,7 @@ def dashboard_filters(territory, period):
     if territory.kind == "uf":
         return Filters(year=year, turn=turn, uf=territory.code)
     if territory.kind == "ddd":
-        return Filters(year=year, turn=turn, ddd=int(territory.code))
+        return Filters(year=year, turn=turn, ddd=int(territory.code), uf=territory.uf)
     if territory.kind == "brasil":
         return Filters(year=year, turn=turn)
     return None

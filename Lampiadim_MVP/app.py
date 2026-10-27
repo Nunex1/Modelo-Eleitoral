@@ -15,7 +15,8 @@ if str(BASE) not in sys.path:
 from lampiadim.data import ASSETS, DATA, DIMENSIONS, ElectoralData, Filters, csv_bytes, integer, percent
 from lampiadim.assistant import ConversationState, answer_question, provider_enabled
 from lampiadim.engine import DataUnavailable, engine_for
-from lampiadim.entities import BRASIL
+from lampiadim.entities import BRASIL, REGIONS
+from lampiadim import evolution_ui
 from lampiadim.planner import Reply
 from lampiadim.responses import render_reply, simulation_table
 from lampiadim.tools import SIMULATION, SIMULATION_WARNING, Plan, QueryError, execute
@@ -48,7 +49,7 @@ except (FileNotFoundError, ValueError, KeyError) as exc:
     st.code(r".\.venv\Scripts\python.exe scripts\preparar_dados.py", language="powershell")
     st.stop()
 
-DEFAULTS = {"year": data.years[-1], "turn": data.turns(data.years[-1])[0], "uf": "", "municipality": "", "ddd": None, "candidate": "", **{k: "" for k in DIMENSIONS}}
+DEFAULTS = {"year": data.years[-1], "turn": data.turns(data.years[-1])[0], "uf": "", "municipality": "", "ddd": None, "candidate": "", "region": "", **{k: "" for k in DIMENSIONS}}
 for key, value in DEFAULTS.items():
     # Atribuição explícita desvincula o valor da limpeza de widgets ausentes
     # quando uma outra página é exibida (chat, privacidade ou segundo turno).
@@ -253,14 +254,16 @@ def shell():
 
 def filters_panel():
     with st.container(key="filters"):
+        safe_select("Região", [""] + list(REGIONS), "region", format_func=lambda x: REGIONS[x][0] if x else "Todas as regiões · Brasil sem exterior", on_change=lambda: st.session_state.update(uf="", municipality="", ddd=None))
         cols = st.columns([.7, .9, 1.45, .65, 1.7])
         with cols[0]:
             safe_select("Ano da eleição", data.years, "year", on_change=lambda: st.session_state.update(turn=data.turns(st.session_state.year)[0]))
         with cols[1]:
             safe_select("Turno", data.turns(st.session_state.year), "turn", format_func=lambda x: f"{x}º turno", help="Somente turnos presentes nos arquivos locais. Vale também para o assistente.", on_change=sync_turn)
         with cols[2]:
-            safe_select("Estado", [""] + sorted(data.states), "uf", format_func=lambda x: "Todo o Brasil" if not x else f"{x} · {data.states[x]}", on_change=select_state)
-        towns = data.towns if not st.session_state.uf else data.towns[data.towns.SG_UF.eq(st.session_state.uf)]
+            states = sorted(REGIONS[st.session_state.region][1]) if st.session_state.region else sorted(data.states)
+            safe_select("Estado", [""] + states, "uf", format_func=lambda x: "Todos os estados do recorte" if not x else f"{x} · {data.states[x]}", on_change=select_state)
+        towns = data.geography(replace(current_filters(), municipality="", ddd=None))
         with cols[3]:
             safe_select("DDD", [None] + sorted(towns.DDD.dropna().astype(int).unique().tolist()), "ddd", format_func=lambda x: "Todos" if x is None else str(x), on_change=select_ddd, placeholder="Todos", help="Somente associações validadas contra a Anatel. Consulte a cobertura em Fontes e método.")
         if st.session_state.ddd:
@@ -310,6 +313,18 @@ def dashboard():
         st.session_state.update(st.session_state.pop("pending_map"))
     st.html('<div class="hero"><div class="eyebrow">Territórios, pessoas e democracia</div><h1>Descubra o Brasil pelos números.</h1><p class="intro">Explore o mapa eleitoral e conheça as histórias que os dados revelam.</p></div>')
     filters = filters_panel()
+    previous_panel = st.session_state.get("filter_memory", {})
+    if previous_panel and previous_panel != filters.__dict__:
+        conversation = st.session_state.conversations.get(st.session_state.get("active_conversation"))
+        if conversation:
+            state = conversation.get("state") or ConversationState.from_filters(filters)
+            updates = {"base": filters, "period": (filters.year, filters.turn), "period_explicit": True, "pending": None}
+            if any(previous_panel.get(k) != getattr(filters, k) for k in ["region", "uf", "municipality", "ddd"]):
+                updates.update(territories=(), recent_places=(), scope=None)
+            if previous_panel.get("candidate") != filters.candidate:
+                updates["candidates"] = (filters.candidate,) if filters.candidate else ()
+            conversation["state"] = replace(state, **updates)
+            conversation["context"] = filters
     st.session_state.filter_memory = filters.__dict__.copy()
     result = data.query(filters)
     municipality_unit = "município" if result["municipalities"] == 1 else "municípios"
@@ -332,6 +347,7 @@ def dashboard():
     with simulation_tab:
         simulation_panel(filters)
     with overview:
+        evolution_ui.render(data, filters)
         with st.container(key="overview-charts"):
             left, right = st.columns([1.12, 1], gap="large")
         with left:
@@ -377,9 +393,7 @@ def dashboard():
                     st.plotly_chart(charts.candidates(result["candidates"], chart_mode or "Percentual"), width="stretch", config={"displayModeBar": False})
                 st.caption("A mesma cor representa todas as candidaturas. Ordenação por quantidade de votos.")
         with st.container(key="history"):
-            turns_panel(filters)
             st.caption("Evolução entre eleições: somente 2026 está disponível; a comparação histórica depende de outro ano com dados equivalentes.")
-        turnout_panel(filters)
     with demographics:
         st.subheader("Entenda o perfil do eleitorado")
         st.caption(f"{result['scope']} · cadastro 2026 · denominador: {integer(result['selected_profile'])} eleitores após os filtros demográficos.")
@@ -449,74 +463,11 @@ def dashboard():
 
 
 def selected_territory(filters):
-    kb = engine_for(data).kb
-    if filters.municipality in kb.city_by_code:
-        return kb.city_by_code[filters.municipality]
-    if filters.ddd:
-        return kb.ddd(filters.ddd)
-    return kb.state(filters.uf) if filters.uf else BRASIL
-
-
-def turnout_panel(filters):
-    """Totalização oficial do território; os filtros de perfil não se aplicam a ela."""
-    totals = engine_for(data).totalization((filters.year, filters.turn), selected_territory(filters))
-    if not totals:
-        st.html('<div class="note">Comparecimento, abstenção e eleitores aptos da totalização: indisponíveis para este turno nos arquivos atuais. O cadastro não substitui esses indicadores.</div>')
-        return
-    with st.container(key="turnout"):
-        st.subheader("Comparecimento oficial")
-        cards = st.columns(4)
-    share = lambda value, base: percent(100 * value / base) if base else "—"
-    cards[0].metric("Eleitorado apto", integer(totals["ELEITORADO_APTO"]), f"{integer(totals['SECOES_TOTALIZADAS'])} seções totalizadas", delta_color="off")
-    cards[1].metric("Comparecimento", integer(totals["COMPARECIMENTO"]), share(totals["COMPARECIMENTO"], totals["ELEITORADO_APTO"]) + " dos aptos", delta_color="off")
-    cards[2].metric("Abstenção", integer(totals["ABSTENCAO"]), share(totals["ABSTENCAO"], totals["ELEITORADO_APTO"]) + " dos aptos", delta_color="off")
-    cards[3].metric("Brancos e nulos", integer(totals["VOTOS_BRANCOS"] + totals["VOTOS_NULOS"]), share(totals["VOTOS_BRANCOS"] + totals["VOTOS_NULOS"], totals["COMPARECIMENTO"]) + " dos votos", delta_color="off",
-                    help=f"Brancos: {integer(totals['VOTOS_BRANCOS'])} · nulos: {integer(totals['VOTOS_NULOS'])}.")
-    state = "totalização final" if totals["final"] else "totalização parcial"
-    caption = f"DADO OFICIAL · TSE, portal de divulgação ({state}), sem exterior. Os filtros de perfil não se aplicam: a totalização não tem recorte demográfico."
-    if any(getattr(filters, name) for name in DIMENSIONS) or filters.candidate:
-        caption += " Valores do território inteiro."
-    st.caption(caption)
+    return evolution_ui.selected_territory(data, filters)
 
 
 def simulation_banner():
     st.html(f'<div class="simulation-banner" role="alert">{SIMULATION_WARNING}</div>')
-
-
-def turns_panel(filters):
-    """Mesmo território nos dois turnos; percentuais sobre os válidos de cada turno."""
-    st.subheader("Comparação entre turnos")
-    turns = data.turns(filters.year)
-    if len(turns) < 2:
-        st.info("Só um turno está disponível para esta eleição.")
-        return
-    territory = selected_territory(filters)
-    try:
-        result = execute(engine_for(data), Plan("comparar_turnos", (filters.year, max(turns)), territories=(territory,)))
-    except (QueryError, VerificationError, DataUnavailable):
-        st.warning("Não foi possível validar a comparação entre turnos neste recorte; nenhum número foi exibido.")
-        return
-    frame, _ = engine_for(data).compare_turns(filters.year, territory, tuple(r["candidate"] for r in result.data["rows"]))
-    st.plotly_chart(charts.turns(frame), width="stretch", config={"displayModeBar": False})
-    table = pd.DataFrame([{"Candidatura": r["candidate"], "Votos 1º turno": r["votos_1"], "% 1º turno": r["pct_1"], "Votos 2º turno": r["votos_2"],
-                           "% 2º turno": r["pct_2"], "Diferença de votos": r["dif_votos"], "Diferença (p.p.)": r["dif_pp"]} for r in result.data["rows"]])
-    display_table(table)
-    totals = result.data["totals"]
-    st.caption(f"{territory.label} · denominadores próprios: {integer(totals[min(turns)])} válidos no 1º turno e {integer(totals[max(turns)])} no 2º. "
-               f"Fonte: {result.trace['fonte']}.")
-    if territory.kind in {"uf", "ddd", "regiao"}:
-        with st.expander("Comparar os turnos município a município"):
-            finalists = [r["candidate"] for r in result.data["rows"]]
-            candidate = st.selectbox("Candidatura", finalists, key="turns_candidate")
-            engine = engine_for(data)
-            first, _ = engine.municipal_values((filters.year, min(turns)), territory, candidate)
-            second, _ = engine.municipal_values((filters.year, max(turns)), territory, candidate)
-            merged = first.merge(second, on=["SG_UF", "CD_MUNICIPIO", "NM_MUNICIPIO"], suffixes=("_1", "_2"))
-            municipal = pd.DataFrame({"Município": merged.NM_MUNICIPIO.str.title() + "/" + merged.SG_UF, "Votos 1º turno": merged.NUMERADOR_1,
-                                      "% 1º turno": merged.PERCENTUAL_1, "Votos 2º turno": merged.NUMERADOR_2, "% 2º turno": merged.PERCENTUAL_2,
-                                      "Diferença (p.p.)": merged.PERCENTUAL_2 - merged.PERCENTUAL_1}).sort_values("Diferença (p.p.)", ascending=False)
-            display_table(municipal, height=380)
-            st.download_button("Exportar comparação municipal · CSV", csv_bytes(municipal), f"lampiadim_turnos_{candidate}_{filters.year}.csv", "text/csv")
 
 
 def temporal_panel(filters):

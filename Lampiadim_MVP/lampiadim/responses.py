@@ -32,24 +32,24 @@ class Writer:
 
     def n(self, value):
         text = fmt_int(value)
-        self.allowed.add(text)
+        self.allowed.update([text, text.lstrip("-−+")])
         return text
 
     def pct(self, value, places=1):
         if value is None or (isinstance(value, float) and math.isnan(value)):
             return "percentual indisponível"
         text = fmt_dec(value, places)
-        self.allowed.add(text)
+        self.allowed.update([text, text.lstrip("-−+")])
         return text + "%"
 
     def dec(self, value, places=1):
         text = fmt_dec(value, places)
-        self.allowed.add(text)
+        self.allowed.update([text, text.lstrip("-−+")])
         return text
 
     def pp(self, value, places=1):
         text = fmt_dec(value, places)
-        self.allowed.add(text)
+        self.allowed.update([text, text.lstrip("-−+")])
         return text + (" ponto percentual" if text in {"1,0", "1", "1,00"} else " pontos percentuais")
 
     def lit(self, value):
@@ -499,12 +499,48 @@ def render_turns(w, plan, data, frame):
         sign = "+" if r["dif_votos"] >= 0 else "−"
         pp_sign = "+" if r["dif_pp"] >= 0 else "−"
         lines.append(f"{w.cand(r['candidate'])}: {w.n(r['votos_1'])} votos ({w.pct(r['pct_1'], places)}) no {first}º turno e {w.n(r['votos_2'])} "
-                     f"({w.pct(r['pct_2'], places)}) no {last}º turno — {sign}{w.n(abs(r['dif_votos']))} votos e {pp_sign}{w.pp(abs(r['dif_pp']), places_for([abs(r['dif_pp'])]))}.")
+                     f"({w.pct(r['pct_2'], places)}) no {last}º turno — {sign}{w.n(abs(r['dif_votos']))} votos e {pp_sign}{w.pp(abs(r['dif_pp']), places_for([abs(r['dif_pp'])]))}; variação relativa de {w.pct(r['dif_relativa'], 2)} sobre a votação inicial.")
     lines.append(f"Percentuais sobre os votos válidos de cada turno {place}, eleição de {year}.")
     return Rendered("\n\n".join(lines))
 
 
-RENDERERS = {"consultar_votos": render_votes, "simular_distribuicao_demografica": render_simulation, "consultar_horarios": render_timing,
+def render_indicators(w, plan, data, frame):
+    from .evolution import DEMOGRAPHIC_NOTE, LABELS, WARNING
+    key, mode, unit = data["key"], data["mode"], data["unit"]
+    label = LABELS[key]
+    place = w.label(data["territory"])
+    period = w.period(plan.period)
+    if data["table"] is not None:
+        table = data["table"]
+        if table.empty:
+            return Rendered("Não há valores definidos para ordenar neste recorte.")
+        suffix = "pontos percentuais" if mode == "change" and unit in {"rate", "pp"} else "%" if unit in {"rate", "relative"} else "eleitores/votos"
+        lines = [f"{w.lit(r.Localidade)}: {w.dec(r.Valor, 2) if suffix != 'eleitores/votos' else w.n(r.Valor)} {suffix}" for r in table.head(10).itertuples()]
+        order = "menores valores / maiores reduções" if plan.order == "asc" else "maiores valores / aumentos"
+        return Rendered(f"{label} · {place}: {order}. " + ("Variação entre os turnos. " if mode == "change" else period + ". ") +
+                        "; ".join(lines) + ". " + ("Crescimento relativo usa a quantidade inicial." if unit == "relative" else "") + " " + DEMOGRAPHIC_NOTE,
+                        [(f"Ranking de {label} ({suffix})", table)])
+    if mode == "change":
+        row = data["comparison"]["table"].set_index("Chave").loc[key]
+        text = (f"{label} · {place}: {w.n(row['1º turno'])} no {w.lit(1)}º turno → {w.n(row['2º turno'])} no {w.lit(2)}º turno de {w.lit(plan.period[0])}. "
+                f"Variação líquida: {w.n(row['Variação absoluta'])}; variação relativa: {w.pct(row['Variação relativa (%)'], 2)} sobre a quantidade inicial.")
+        if pd.notna(row["Variação (p.p.)"]):
+            text += f" Taxa: {w.pct(row['% 1º turno'], 2)} → {w.pct(row['% 2º turno'], 2)} ({w.pp(row['Variação (p.p.)'], 2)}), sobre {row['Denominador da taxa'].lower()}."
+        text += " " + (WARNING if key in {"LULA", "FLAVIO"} else "A mudança agregada não identifica transferências para qualquer candidato.")
+    else:
+        snapshot = data["snapshot"]
+        text = f"{label} · {place} {period}: {w.n(snapshot['totals'][key])}"
+        if key in snapshot["rates"]:
+            text += f" ({w.pct(snapshot['rates'][key], 2)} sobre {LABELS[snapshot['denominators'][key]].lower()})"
+        text += "."
+    if frame.note == "totais_territoriais" or key not in {"LULA", "FLAVIO"}:
+        text += " " + DEMOGRAPHIC_NOTE
+    if data["territory"].kind == "total":
+        text += " Denominador nacional efetivo conforme nota do TSE; inclui exterior. A composição não fecha por categorias técnicas não alocáveis."
+    return Rendered(text)
+
+
+RENDERERS = {"consultar_indicadores": render_indicators, "consultar_votos": render_votes, "simular_distribuicao_demografica": render_simulation, "consultar_horarios": render_timing,
              "comparar_turnos": render_turns, "consultar_resultado_territorial": render_result, "comparar_candidatos": render_comparison,
              "comparar_territorios": render_territories, "consultar_eleitorado": render_electorate,
              "consultar_distribuicao_demografica": render_distribution, "gerar_ranking_municipal": render_ranking,
@@ -539,6 +575,9 @@ def render_reply(kb, reply):
     d, code = reply.detail, reply.code
     available = w.lit(available_text(kb))
     texts = {
+        "categoria_tecnica": "Votos anulados e anulados sub judice são categorias técnicas distintas de votos nulos. O painel Votos brancos e nulos apresenta essas categorias separadamente, conforme a totalização oficial; não são somadas novamente aos nulos.",
+        "invalidos_ambiguos": "“Votos inválidos” pode abranger categorias diferentes. Pergunte por votos brancos, votos nulos ou brancos e nulos somados. Votos anulados e anulados sub judice são categorias técnicas separadas.",
+        "fluxos_nao_identificados": "Não é possível determinar quantos eleitores mudaram de candidato ou saíram da abstenção para uma candidatura com estes dados agregados. Uma matriz compatível não revela trajetórias individuais. No dashboard, o laboratório oferece simulações hipotéticas apenas quando as margens e a hipótese de população constante são compatíveis.",
         "saudacao": "Olá! Pergunte sobre votos, municípios ou o perfil do eleitorado.",
         "agradecimento": "Por nada.",
         "ajuda": "Consulto os votos presidenciais e o cadastro do eleitorado disponíveis (" + available + "). Exemplos: ‘Quantos votos Lula teve em Americana?’, ‘Quem ganhou em Campinas?’, ‘Cinco cidades paulistas com mais votos para Lula’, ‘Quantas eleitoras há no DDD 19?’.",

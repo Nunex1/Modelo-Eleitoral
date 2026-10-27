@@ -26,3 +26,12 @@ dados/tratados/
 .pytest_cache/
 .streamlit/secrets.toml
 resultados/*.zip
+
+# Derivados auditados que acompanham o manifesto versionado do Lampiadim.
+!dados/tratados/
+dados/tratados/*
+!dados/tratados/lampiadim/
+dados/tratados/lampiadim/*
+!dados/tratados/lampiadim/totalizacao_detalhada.parquet
+!dados/tratados/lampiadim/referencias_totalizacao.json
+resultados/evolucao-streamlit.*.log

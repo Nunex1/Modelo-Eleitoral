@@ -142,6 +142,7 @@ class Interpreter:
             return Frame("desconhecido")
         mentions = self.kb.scan(tokens)
         protected = {i for m in mentions for i in range(m.start, m.end)}
+        protected.update(i for i, token in enumerate(tokens) if token.norm in {"INVALIDOS", "INVALIDO", "ANULADOS", "ANULADO"})
         tokens = correct_typos(tokens, protected)
         norms = [t.norm for t in tokens]
         q = " " + " ".join(norms) + " "
@@ -262,7 +263,7 @@ class Interpreter:
             qualifier = abbr_at.get(m.end, "")
             if qualifier:
                 consumed.add(m.end)
-            state_cue = (len(prev) >= 2 and prev[-2] in {"ESTADO", "UF"}) or prev1 in {"ESTADO", "UF"}
+            state_cue = (len(prev) >= 2 and prev[-2] in {"ESTADO", "UF", "MUNICIPIOS", "CIDADES"}) or prev1 in {"ESTADO", "UF"}
             capital_cue = "CAPITAL" in prev[-2:] or nxt == "CAPITAL"
             city_cue = capital_cue or (len(prev) >= 2 and prev[-2] in {"CIDADE", "MUNICIPIO"}) or prev1 in {"CIDADE", "MUNICIPIO"}
             if m.extra.get("gentilic"):
@@ -551,11 +552,20 @@ class Interpreter:
         if has(q, *HELP_PHRASES) and not (has_candidate or f.territories):
             f.intent = "ajuda"
             return
+        # Migração individual não observada: esta proteção vale também com IA externa.
+        transfer = has(q, "MIGRACAO", "TRANSFERENCIA", "TRANSFERENCIAS", "VIERAM OS VOTOS", "VIERAM OS NOVOS VOTOS", "MUDARAM DE VOTO", "PASSARAM A VOTAR") or \
+            (has_candidate and has(q, "ABSTIVERAM", "ABSTENCIONISTAS", "DEMAIS CANDIDATOS", "OUTROS CANDIDATOS", "VOTOU EM BRANCO", "VOTARAM EM BRANCO") and (vote_choice or has(q, "ESTIMAR", "QUANTOS", "NOVOS VOTOS")))
+        if transfer:
+            return limitation("fluxos_nao_identificados")
         if has(q, *OPINION_PHRASES) or has(q, *PREDICTION_PHRASES) or has(q, *CAUSAL_PHRASES):
             f.intent = "fora_escopo"
             return
         if words & OTHER_OFFICE:
             return limitation("outro_cargo")
+        if words & {"ANULADOS", "ANULADO"} or has(q, "SUB JUDICE"):
+            return limitation("categoria_tecnica")
+        if words & {"INVALIDOS", "INVALIDO"}:
+            return limitation("invalidos_ambiguos")
 
         # Simulação hipotética: só com pedido explícito, e nunca quando se pergunta pelo voto real.
         if (words & SIMULATION_WORDS or has(q, "MESMA SIMULACAO", "DISTRIBUICAO HIPOTETICA")) and not has(q, *REALITY_PHRASES):
@@ -596,6 +606,41 @@ class Interpreter:
                 f.metric = "votos_apos_17h" if f.detail["hour"] == 17 and not f.detail["minute"] else "votos_apos_hora"
             else:
                 f.metric = "resumo"
+            return
+
+        # Totalização e evolução: denominadores e unidade seguem juntos até a ferramenta.
+        turnout = has(q, *[p for p in TURNOUT_PHRASES if "PARTICIPACAO" not in p]) or \
+            (has(q, "PARTICIPACAO", "TAXA DE PARTICIPACAO") and not has_candidate) or \
+            (has(q, "PESSOAS VOTARAM", "QUANTOS VOTARAM", "QUANTAS VOTARAM", "GENTE VOTOU", "ELEITORES VOTARAM", "MULHERES VOTARAM", "HOMENS VOTARAM") and not has_candidate)
+        blanks = has(q, *BLANK_PHRASES)
+        growth = has_candidate and bool(words & {"CRESCEU", "CRESCIMENTO", "EVOLUIU", "ADICIONAIS", "GANHO", "EVOLUCAO"})
+        effective_electorate = has(q, "ELEITORADO APTO", "APTOS DA TOTALIZACAO", "ELEITORES APTOS", "ELEITORADO EFETIVO")
+        if turnout or blanks or growth or effective_electorate:
+            f.intent = "indicadores"
+            change = growth or has(q, *TURNS_PHRASES, "EVOLUCAO", "DIFERENCA", "REDUCAO", "AUMENTO", "CRESCIMENTO")
+            if effective_electorate:
+                key = "ELEITORADO_APTO"
+            elif growth:
+                key = "candidato"
+            elif words & {"BRANCOS", "BRANCO"} and words & {"NULOS", "NULO"}:
+                key = "BRANCOS_NULOS"
+            elif words & {"BRANCOS", "BRANCO"}:
+                key = "VOTOS_BRANCOS"
+            elif words & {"NULOS", "NULO", "ANULARAM"}:
+                key = "VOTOS_NULOS"
+            elif words & {"ABSTENCAO", "ABSTENCOES", "ABSTIVERAM", "AUSENTES", "FALTARAM"} or has(q, "NAO VOTARAM", "DEIXARAM DE VOTAR"):
+                key = "ABSTENCAO"
+            else:
+                key = "COMPARECIMENTO"
+            ranking = bool(words & {"MAIOR", "MAIORES", "MENOR", "MENORES", "RANKING"} and words & {"MUNICIPIOS", "CIDADES", "ESTADO", "ESTADOS", "CIDADE", "MUNICIPIO"})
+            unit = "pp" if has(q, *PP_PHRASES) else "relative" if growth and (words & PCT_WORDS) else "rate" if words & (PCT_WORDS | {"TAXA", "TAXAS", "PORCENTAGEM"}) else "count"
+            f.metric = "|".join([key, "change" if change else "current", unit, "ranking" if ranking else "summary"])
+            f.level = "uf" if words & {"ESTADO", "ESTADOS", "UFS"} and not words & {"MUNICIPIOS", "CIDADES", "MUNICIPIO", "CIDADE"} else "municipio"
+            f.order = "asc" if words & {"REDUCAO", "MENOR", "MENORES"} else "desc"
+            f.limit = self._limit(norms) or (1 if "QUAL" in words and ranking else 10)
+            if change:
+                f.turn = None
+            f.note = "totais_territoriais" if group else ""
             return
 
         # Comparação entre turnos do mesmo território.

@@ -194,13 +194,19 @@ def test_20_ddd_electorate_without_duplicates(data, ref):
 
 # 21 ---------------------------------------------------------------- métrica indisponível
 @pytest.mark.parametrize("question,expected", [("Qual a renda média dos eleitores de Americana?", "não inclui renda"),
-                                               ("Quantos votos brancos teve Campinas?", "brancos e nulos"),
-                                               ("Qual a abstenção em Americana?", "abstenção"),
-                                               ("Quantas pessoas votaram em Americana?", "votantes"),
                                                ("Qual a raça dos eleitores de Americana?", "raça/cor")])
 def test_21_unavailable_metric(data, question, expected):
     a = answer_question(question, data)
     assert expected in a.text and no_stats(a.text) and not a.trace
+
+
+@pytest.mark.parametrize("question,metric", [("Quantos votos brancos teve Campinas?", "VOTOS_BRANCOS"),
+                                            ("Qual a abstenção em Americana?", "ABSTENCAO"),
+                                            ("Quantas pessoas votaram em Americana?", "COMPARECIMENTO")])
+def test_21_totalization_now_available(data, question, metric):
+    a = answer_question(question, data)
+    assert a.trace and a.trace[0]["ferramenta"] == "consultar_indicadores"
+    assert a.trace[0]["metrica"].startswith(metric + "|") and a.trace[0]["validacao"] == "aprovada"
 
 
 # 22 ---------------------------------------------------------------- falha da base

@@ -32,7 +32,7 @@ MAX_QUESTION = 2000
 ATTACK = re.compile(r"<\s*/?\s*(script|iframe|img|svg)\b|javascript:|\bdrop\s+table\b|\bdelete\s+from\b|\binsert\s+into\b|\bunion\s+select\b"
                     r"|\bselect\s+[\w*,\s]+\s+from\b|;\s*--|\bupdate\s+\w+\s+set\b|\bexec\s*\(|\bos\.system\b|\bimport\s+os\b", re.I)
 # Limitações decididas pelo intérprete local valem mesmo com o modelo habilitado.
-GUARDED = {"limitacao", "fora_escopo"}
+GUARDED = {"limitacao", "fora_escopo", "indicadores"}
 
 __all__ = ["Answer", "answer_question", "provider_enabled", "ConversationState"]
 
@@ -79,8 +79,10 @@ def _filters(state, kb):
         geo["uf"] = territory.code
     elif territory is not None and territory.kind == "ddd":
         geo["ddd"] = int(territory.code)
+        geo["uf"] = territory.uf
     candidate = state.candidates[0] if len(state.candidates) == 1 else ""
-    return Filters(year=period[0], turn=period[1], candidate=candidate, **geo)
+    region = territory.code if territory is not None and territory.kind == "regiao" else base.region if territory is None else ""
+    return Filters(year=period[0], turn=period[1], candidate=candidate, region=region, **geo)
 
 
 def _sources(trace):
@@ -118,7 +120,7 @@ def answer_question(question, data, context=None):
     queue = [pending_frame] if pending_frame else None
     if queue is None and provider_enabled():
         local = [interpreter.interpret(clause, state) for clause in split_clauses(question)]
-        if any(f.intent in GUARDED for f in local):
+        if any(f.intent in GUARDED for f in local) or (state.intent == "indicadores" and any(f.intent == "continuar" for f in local)):
             queue = local
         else:
             try:

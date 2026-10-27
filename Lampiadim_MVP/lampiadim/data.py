@@ -44,6 +44,7 @@ class Filters:
     identidade: str = ""
     idade: str = ""
     escolaridade: str = ""
+    region: str = ""
 
 
 class ElectoralData:
@@ -104,6 +105,9 @@ class ElectoralData:
         return sorted(rows.NM_URNA_CANDIDATO.unique().tolist())
 
     def validate(self, filters):
+        from .entities import REGIONS
+        if filters.region and filters.region not in REGIONS:
+            raise ValueError("Região não disponível.")
         if filters.year not in self.years or filters.turn not in self.turns(filters.year):
             raise ValueError("Ano ou turno não disponível nesta base local.")
         if filters.uf and filters.uf not in self.states:
@@ -121,6 +125,9 @@ class ElectoralData:
 
     def geography(self, filters):
         towns = self.towns
+        if filters.region:
+            from .entities import REGIONS
+            towns = towns[towns.SG_UF.isin(REGIONS[filters.region][1])]
         if filters.uf:
             towns = towns[towns.SG_UF.eq(filters.uf)]
         if filters.ddd is not None:
@@ -148,6 +155,9 @@ class ElectoralData:
             label = f"{rows.iloc[0].NM_MUNICIPIO.title()} · {rows.iloc[0].SG_UF}" if len(rows) else "Município indisponível"
         else:
             label = self.states.get(filters.uf, "Brasil · sem exterior")
+            if filters.region and not filters.uf:
+                from .entities import REGIONS
+                label = "Região " + REGIONS[filters.region][0]
         return label + (f" · DDD {filters.ddd}" if filters.ddd else "")
 
     @lru_cache(maxsize=64)

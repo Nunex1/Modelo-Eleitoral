@@ -197,6 +197,8 @@ def _validate_territory(engine, territory):
         raise QueryError("exterior_indisponivel")
     if territory.kind == "ddd" and int(territory.code) not in kb.ddds:
         raise QueryError("ddd_sem_correspondencia", ddd=territory.code)
+    if territory.kind == "ddd" and territory.uf and (territory.uf not in kb.states or not engine.codes(territory)):
+        raise QueryError("territorio_invalido")
     if territory.kind == "municipio" and not engine.codes(territory):
         raise QueryError("territorio_invalido")
 
@@ -460,6 +462,9 @@ def verify_timing(engine, sections, period, territory):
 def comparar_turnos(engine, plan):
     territory = plan.territories[0]
     year = plan.period[0]
+    if engine.data.totalization is not None and year == 2026:
+        from .evolution import evolution_for
+        evolution_for(engine).compare(year, territory)  # mesma conciliação do infográfico
     frame, turns = engine.compare_turns(year, territory, plan.candidates)
     statuses = [verify_result(engine.data, engine.result((year, t), territory), territory, (year, t)) for t in turns]
     check(len(turns) >= 2, "comparação exige dois turnos")
@@ -472,7 +477,8 @@ def comparar_turnos(engine, plan):
             raise QueryError("candidato_fora_do_pleito", candidate=candidate, period=(year, next(t for t, v in values.items() if v.empty)))
         first, second = values[min(turns)].iloc[0], values[max(turns)].iloc[0]
         rows.append({"candidate": candidate, "votos_1": int(first.VOTOS), "pct_1": first.PERCENTUAL, "votos_2": int(second.VOTOS), "pct_2": second.PERCENTUAL,
-                     "dif_votos": int(second.VOTOS - first.VOTOS), "dif_pp": second.PERCENTUAL - first.PERCENTUAL})
+                     "dif_votos": int(second.VOTOS - first.VOTOS), "dif_pp": second.PERCENTUAL - first.PERCENTUAL,
+                     "dif_relativa": 100 * (second.VOTOS - first.VOTOS) / first.VOTOS if first.VOTOS else None})
     totals = frame.groupby("NR_TURNO").TOTAL_VALIDOS.first().to_dict()
     trace = _trace(engine, "comparar_turnos", plan, VOTES_SOURCE, "votes", "comparacao_entre_turnos",
                    "votos válidos de cada turno no mesmo território (denominadores próprios)", len(frame),
@@ -493,8 +499,45 @@ def contar_municipios(engine, plan):
     return {"count": len(codes), "territory": territory, "gap": gap}, trace
 
 
+def consultar_indicadores(engine, plan):
+    from .evolution import LABELS, evolution_for
+    service = evolution_for(engine)
+    key, mode, unit, presentation = plan.metric.split("|")
+    if key == "candidato":
+        number = engine.kb.candidates[plan.candidates[0]].number
+        key = {13: "LULA", 22: "FLAVIO"}.get(number)
+    if key not in LABELS or mode not in {"current", "change"} or unit not in {"count", "rate", "relative", "pp"} or presentation not in {"summary", "ranking"}:
+        raise QueryError("metrica_invalida")
+    territory = plan.territories[0]
+    year, turn = plan.period
+    comparison = service.compare(year, territory) if mode == "change" else None
+    snapshot = comparison["second"] if comparison else service.snapshot(year, turn, territory)
+    table = None
+    if presentation == "ranking":
+        full = service.territorial(year, territory, plan.level)
+        suffix = "_PP" if mode == "change" and unit in {"pp", "rate"} else "_REL" if mode == "change" and unit == "relative" else "_DELTA" if mode == "change" else f"_TAXA_{turn}" if unit == "rate" else f"_{turn}"
+        field = key + suffix
+        if field not in full:
+            raise QueryError("metrica_invalida")
+        ordered = full.dropna(subset=[field]).sort_values([field, "Localidade"], ascending=[plan.order == "asc", True])
+        # Inclui empates no corte; a tabela conserva a coluna e unidade utilizadas.
+        if len(ordered) > plan.limit:
+            cutoff = ordered[field].iloc[plan.limit - 1]
+            ordered = ordered[ordered[field].le(cutoff) if plan.order == "asc" else ordered[field].ge(cutoff)]
+        table = ordered[["Localidade", field]].rename(columns={field: "Valor"})
+    result = {"key": key, "mode": mode, "unit": unit, "snapshot": snapshot, "comparison": comparison, "table": table, "territory": territory}
+    trace = _trace(engine, "consultar_indicadores", plan, "TSE · totalizacao.parquet + votos nominais validados", "divulgacao", plan.metric,
+                   "aptos para comparecimento/abstenção; comparecimento para brancos/nulos; válidos para candidaturas; base inicial para crescimento relativo", snapshot["rows"], {"indicador": key})
+    trace["versao"] = f"{snapshot['updated']} · SHA256 {snapshot['version']}"
+    trace["validacao"] = "aprovada"
+    return result, trace
+
+
 ONE = "1 território: " + ", ".join(sorted(VOTE_SCOPES))
 TOOLS = {spec.name: spec for spec in [
+    ToolSpec("consultar_indicadores", "Totalização, evolução entre turnos e rankings com denominadores verificados.",
+             {"period": ("(ano, turno)", True, "disponível"), "territories": ("tuple", True, "1 território"), "metric": ("str", True, "indicador|current/change|count/rate/pp/relative|summary/ranking")},
+             "contagens, taxas, diferenças e rankings", "TSE · totalização", "sem inferência individual ou demográfica", consultar_indicadores),
     ToolSpec("consultar_votos", "Votos e percentual de candidaturas em um território.",
              {"period": ("(ano, turno)", True, "presente na base"), "candidates": ("tuple[str]", True, "1–12 candidaturas do período"),
               "territories": ("tuple[Territory]", True, ONE)},

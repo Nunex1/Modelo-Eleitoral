@@ -453,6 +453,9 @@ def main():
         temp = OUT / "manifest.tmp"
         temp.write_text(json.dumps(old, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(OUT / "manifest.json")
+        if args.divulgacao:
+            from auditar_totalizacao import audit
+            audit()
         print(json.dumps({"success": True, "outputs": sorted(rebuilt)}, ensure_ascii=False), flush=True)
         return
     manifest = {"schema_version": 1, "prepared_at": datetime.now(timezone.utc).isoformat(), "classification": "arquivos TSE fornecidos no projeto; agregados reconciliados com os originais locais", "scope": "Brasil sem exterior", "sources": {}}
@@ -476,6 +479,9 @@ def main():
     temp = OUT / "manifest.tmp"
     temp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(OUT / "manifest.json")
+    if report:
+        from auditar_totalizacao import audit
+        audit()
     print(json.dumps({"success": True, "votes": manifest["sources"]["votes"]["total"], "profile": manifest["sources"]["profile"]["total"], "ddd": manifest["sources"]["geography"]}, ensure_ascii=False), flush=True)
 
 

@@ -358,13 +358,15 @@
   }
  },
  {
-  "id": "metrica-indisponivel",
+  "id": "abstencao-totalizacao-disponivel",
   "conversa": [
    "Qual a abstenção em Americana?"
   ],
   "esperado": {
-   "sem_numeros": true,
-   "contem": "não estão na base"
+   "ferramenta": "consultar_indicadores",
+   "contem": "38.077",
+   "territorios": ["Americana/SP"],
+   "turno": 1
   }
  },
  {

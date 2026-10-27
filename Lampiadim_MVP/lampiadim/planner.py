@@ -10,11 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from .data import normalize
-from .entities import BRASIL
+from .entities import BRASIL, REGIONS, Territory
 from .language import tokenize
 from .tools import Plan
 
-CANDIDATE_INTENTS = {"votos", "comparar_candidatos", "vitorias", "simulacao", "comparar_turnos"}
+CANDIDATE_INTENTS = {"votos", "comparar_candidatos", "vitorias", "simulacao", "comparar_turnos", "indicadores"}
 
 
 @dataclass
@@ -175,9 +175,11 @@ class Planner:
         if base.municipality in self.kb.city_by_code:
             return self.kb.city_by_code[base.municipality]
         if base.ddd:
-            return self.kb.ddd(base.ddd)
+            return replace(self.kb.ddd(base.ddd), uf=base.uf)
         if base.uf:
             return self.kb.state(base.uf)
+        if base.region:
+            return Territory("regiao", base.region, REGIONS[base.region][0])
         return None
 
     def _territories(self, frame, state, intent):
@@ -297,6 +299,22 @@ class Planner:
                 return Reply("esclarecimento", "candidato_ausente"), frame
             if not frame.dimensions:
                 return self._ask("simulacao_sem_dimensao", frame, intent, "dimensao", ["sexo", "identidade", "idade", "escolaridade"]), frame
+        if intent == "indicadores":
+            if frame.metric.startswith("candidato|") and not candidates:
+                return Reply("esclarecimento", "candidato_ausente"), frame
+            year = frame.year or (state.period[0] if state.period else max(years))
+            if "|change|" in frame.metric:
+                if not {(year, 1), (year, 2)}.issubset(self.kb.periods):
+                    return Reply("limitacao", "turnos_insuficientes", {"year": year}), frame
+                period = (year, 2)
+            else:
+                period, problem, explicit = self._period(frame, state, [], intent)
+                if problem:
+                    return problem, frame
+            territory = self._territories(frame, state, intent)[0]
+            frame.territories, frame.candidates = [territory], candidates
+            return Plan("consultar_indicadores", period, tuple(candidates[:1]) if frame.metric.startswith("candidato|") else (),
+                        territories=(territory,), metric=frame.metric, order=frame.order or "desc", level=frame.level or "municipio", limit=frame.limit or 10), frame
         if intent == "comparar_turnos":
             year = frame.year or (state.period[0] if state.period else max(years))
             turns = sorted(t for y, t in self.kb.periods if y == year)

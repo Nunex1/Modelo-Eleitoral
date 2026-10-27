@@ -5,3 +5,5 @@ pyarrow>=18,<27
 plotly>=6,<7
 httpx>=0.28,<1
 requests>=2.32,<3
+scipy>=1.14,<2
+pillow>=10,<14

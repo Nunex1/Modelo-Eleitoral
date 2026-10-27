@@ -173,3 +173,19 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 
 /* Simulações hipotéticas: aviso fixo, tom de alerta e hachura, nunca a identidade dos dados oficiais. */
 .simulation-banner{margin:6px 0 14px;padding:14px 18px;border:3px solid #B45309;border-radius:12px;background-color:#FEF3C7;background-image:repeating-linear-gradient(45deg,rgba(180,83,9,.10) 0 10px,transparent 10px 20px);color:#7C2D12;font-weight:800;font-size:1.12rem;letter-spacing:.01em;text-align:center;line-height:1.35}
+
+/* Infográficos eleitorais: números legíveis e fluxo vertical em telas estreitas. */
+.st-key-evolution {border:1px solid var(--line);border-radius:24px;padding:24px;background:#fffdf8;margin-bottom:24px}
+.st-key-evolution h2 {font-size:clamp(1.3rem,2.2vw,2rem)!important;line-height:1.25;letter-spacing:-.03em}
+.st-key-evolution h3 {font-size:1.25rem!important}
+.st-key-evolution [data-testid="stMetricValue"] {font-size:clamp(1.35rem,2.5vw,2rem)!important}
+.st-key-evolution [data-testid="stMetricDelta"] {white-space:normal}
+@media(max-width:900px){
+  .st-key-evolution{padding:14px;border-radius:16px}
+  .st-key-evolution [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important}
+  .st-key-evolution [data-testid="stColumn"]{flex:1 1 220px!important;min-width:0!important}
+}
+@media(max-width:540px){
+  .st-key-evolution [data-testid="stColumn"]{flex:1 1 100%!important;width:100%!important}
+  .st-key-evolution [data-testid="stMetric"]{min-height:100px}
+}
